@@ -17,10 +17,13 @@ where integrated; the first 5 mm of the channel are left out where noted, the in
     Fx, Fy, Fx_pressure, Fy_pressure, Fx_viscous, Fy_viscous   forces on the obstacle (forces), 10 mm depth
     max_wall_shear, front_pressure, base_pressure              obstacle faces (wallShearStress, surfaces);
                                                                base pressure = mean p on the rear 10 % of its length
+    mean_wall_shear            |wall shear stress| averaged over the obstacle faces, area weighted
+                               (mag + surfaceFieldValue)
     dp_inlet_outlet            area average of p on the inlet minus the outlet (surfaceFieldValue)
     dp_sections                average p on the cross-section 10 mm behind the inlet minus the one 10 mm before the
                                outlet (sets), without the singular inlet corners
     peak_vorticity             largest |vorticity| of the cells, first 5 mm left out (vorticity)
+    mean_vorticity             |vorticity| averaged over the cells (area weighted), first 5 mm left out
     dissipation                nu * sum of |grad U|^2 * cell area, first 5 mm left out (grad)
     recirculation_area_mm2     area of the cells with u_x < 0
     recirculation_length_mm    furthest cell with u_x < 0 behind the obstacle, from its downstream end
@@ -43,8 +46,8 @@ NU = 1e-4        # m^2/s
 DEPTH = 0.01     # m, thickness of the 2D meshes
 
 FIELDS = ['case_name', 'resolution', 'status', 'time', 'cells', 'faces', 'Fx', 'Fy', 'Fx_pressure', 'Fy_pressure',
-          'Fx_viscous', 'Fy_viscous', 'max_wall_shear', 'front_pressure', 'base_pressure', 'dp_inlet_outlet',
-          'dp_sections', 'peak_vorticity', 'dissipation', 'recirculation_area_mm2', 'recirculation_length_mm',
+          'Fx_viscous', 'Fy_viscous', 'max_wall_shear', 'mean_wall_shear', 'front_pressure', 'base_pressure',
+          'dp_inlet_outlet', 'dp_sections', 'peak_vorticity', 'mean_vorticity', 'dissipation', 'recirculation_area_mm2', 'recirculation_length_mm',
           'flow_split_upper', 'wake_min_u_x']
 
 RE_VECTOR = re.compile(r"\(([-\d.eE+]+)\s+([-\d.eE+]+)\s+[-\d.eE+]+\)")
@@ -132,6 +135,8 @@ def collect_case(work):
     rear = x_faces >= x_faces.max() - 0.1 * (x_faces.max() - x_faces.min())
     row.update({'faces': len(pressure), 'max_wall_shear': float(np.hypot(shear[:, 3], shear[:, 4]).max()),
                 'front_pressure': float(pressure[:, 3].max()), 'base_pressure': float(pressure[rear, 3].mean())})
+    row['mean_wall_shear'] = float(last_values(os.path.join(work, "postProcessing", "obstacleShear", "*",
+                                                            "*.dat")).split()[1])
 
     # pressure drop
     inlet = float(last_values(os.path.join(work, "postProcessing", "inletPressure", "*", "*.dat")).split()[1])
@@ -149,6 +154,7 @@ def collect_case(work):
     region = x_mm > 5
     in_plane = grad[:, [0, 1, 3, 4]]  # dUx/dx, dUy/dx, dUx/dy, dUy/dy
     row['peak_vorticity'] = float(np.abs(vorticity[region]).max())
+    row['mean_vorticity'] = float((np.abs(vorticity[region]) * area[region]).sum() / area[region].sum())
     row['dissipation'] = float(NU * ((in_plane[region] ** 2).sum(axis=1) * area[region]).sum())
     reverse = ux < 0
     row['recirculation_area_mm2'] = float(area[reverse].sum() * 1e6)

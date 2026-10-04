@@ -93,6 +93,29 @@ functions
         writeInterval   1;
     }
 
+    // mean wall shear on the obstacle: |wall shear stress| averaged over the obstacle faces (area weighted)
+    magWallShear
+    {
+        type            mag;
+        libs            ("libfieldFunctionObjects.so");
+        field           wallShearStress;
+        writeControl    timeStep;
+        writeInterval   1;
+    }
+
+    obstacleShear
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    timeStep;
+        writeInterval   1;
+        writeFields     false;
+        regionType      patch;
+        name            obstacle;
+        operation       areaAverage;
+        fields          (mag(wallShearStress));
+    }
+
     // p and wall shear stress on the obstacle faces (face values, no interpolation)
     obstacleSurface
     {

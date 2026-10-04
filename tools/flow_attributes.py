@@ -13,6 +13,7 @@ Attributes computed from the arrays (on each resolution's own grid, mm and m/s):
     dp_inlet_outlet           mean pressure on the inlet minus the outlet column
     dissipation               nu * integral of |grad u|^2 over the fluid (first 5 mm left out: inlet corners)
     peak_vorticity            largest |vorticity| (shear layers leaving the obstacle), first 5 mm left out
+    mean_vorticity            |vorticity| averaged over the fluid area, first 5 mm left out
     wake_min_u_x              smallest u_x 20 mm behind the obstacle (wake velocity deficit)
 
 The same attributes computed with OpenFOAM on the simulation mesh (results/<run>/<case>_attributes.json, see
@@ -41,8 +42,9 @@ from dataset.results import load_attributes, pairs  # noqa: E402
 
 NU = 1e-4  # m^2/s
 ARRAY_ATTRIBUTES = ['recirculation_length_mm', 'recirculation_area_mm2', 'flow_split_upper', 'dp_inlet_outlet',
-                    'dissipation', 'peak_vorticity', 'wake_min_u_x']
-OPENFOAM_ONLY = ['Fx', 'Fx_pressure', 'Fx_viscous', 'Fy', 'max_wall_shear', 'front_pressure', 'base_pressure']
+                    'dissipation', 'peak_vorticity', 'mean_vorticity', 'wake_min_u_x']
+OPENFOAM_ONLY = ['Fx', 'Fx_pressure', 'Fx_viscous', 'Fy', 'Fy_pressure', 'Fy_viscous', 'max_wall_shear',
+                 'mean_wall_shear', 'front_pressure', 'base_pressure', 'dp_sections']
 
 
 def spacing(nx, ny, domain):
@@ -82,6 +84,7 @@ def attributes(sample, domain):
     result['dissipation'] = float(NU * sum((g[region] ** 2).sum() for g in gradients) * dx * dy)
     vorticity = gradients[1] - gradients[2]  # d(u_y)/dx - d(u_x)/dy
     result['peak_vorticity'] = float(np.abs(vorticity[region]).max())
+    result['mean_vorticity'] = float(np.abs(vorticity[region]).mean())
 
     i_wake = min(int(round((x_end + 20) / hx)), nx - 1)
     result['wake_min_u_x'] = float(ux[i_wake][fluid[i_wake]].min())
@@ -151,7 +154,8 @@ def main():
                 else:
                     values[run] = reference
                 row[f'{name}_{run}'] = values[run]
-            scale = values[args.fine] if name != 'Fy' else openfoam_value(case_name, args.fine, 'Fx')
+            # lift is close to zero for nearly symmetric obstacles, it is compared relative to the drag
+            scale = values[args.fine] if not name.startswith('Fy') else openfoam_value(case_name, args.fine, 'Fx')
             row[f'{name}_diff_%'] = relative_difference(values[args.coarse], values[args.fine], scale)
 
         # field differences on the fine grid, fluid points without the inlet corners

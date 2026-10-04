@@ -32,9 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import read_csv, write_csv
 
 # lift is left out: it is close to zero for most obstacles, relative values mean nothing there
-ATTRIBUTES = ['Fx', 'Fx_pressure', 'Fx_viscous', 'front_pressure', 'base_pressure', 'max_wall_shear',
-              'peak_vorticity', 'recirculation_length_mm', 'recirculation_area_mm2', 'flow_split_upper',
-              'wake_min_u_x', 'dissipation', 'dp_inlet_outlet']
+ATTRIBUTES = ['Fx', 'Fx_pressure', 'Fx_viscous', 'Fy', 'Fy_pressure', 'Fy_viscous', 'front_pressure', 'base_pressure',
+              'max_wall_shear', 'mean_wall_shear', 'peak_vorticity', 'mean_vorticity', 'recirculation_length_mm',
+              'recirculation_area_mm2', 'flow_split_upper', 'wake_min_u_x', 'dissipation', 'dp_inlet_outlet',
+              'dp_sections']
 MESHES = ['16x', '4x', 'base']  # fine, medium, coarse (phi_1, phi_2, phi_3)
 
 
