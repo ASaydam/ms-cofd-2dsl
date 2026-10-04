@@ -14,12 +14,13 @@ Without MSCOFD_REMOTE the archive stays in archives/ (the footprint guard of hpc
 
 import argparse
 import csv
-import fcntl
 import hashlib
 import os
 import subprocess
 import time
 from pathlib import Path
+
+from hpc.ledger import DirectoryLock
 
 INDEX_FIELDS = ['run', 'case', 'file', 'bytes', 'md5', 'remote', 'uploaded']
 
@@ -41,14 +42,12 @@ def remote_md5(target):
 
 
 def append_index(archives_folder, row):
-    """adds a line to archive_index.csv, locked because many jobs finish at the same time"""
+    """adds a line to archive_index.csv, under a lock that holds across nodes (many jobs finish at the same time)"""
     index = Path(archives_folder) / 'archive_index.csv'
-    with open(index, 'a', newline='') as file:
-        fcntl.flock(file, fcntl.LOCK_EX)
+    with DirectoryLock(Path(archives_folder) / '.index.lock'), open(index, 'a', newline='') as file:
         if file.tell() == 0:
             csv.writer(file, lineterminator='\n').writerow(INDEX_FIELDS)
         csv.DictWriter(file, fieldnames=INDEX_FIELDS, lineterminator='\n').writerow(row)
-        fcntl.flock(file, fcntl.LOCK_UN)
 
 
 def upload_archive(archive, run, case, retries=3):

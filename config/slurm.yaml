@@ -31,6 +31,6 @@ footprint:
   pause_used_gib: 600     # beegfs-ctl --getquota of the user
   pause_backlog_gib: 200  # archives not yet uploaded
 
-max_attempts: 3          # an interrupted or failed task is submitted again at most this many times
+max_attempts: 3          # submissions of a task at most (an interrupted or failed task is submitted again)
 min_interval_s: 30       # at most one topup.py call per this many seconds; a job that ends waits for its
                          # turn (or returns when a later call covered it)

@@ -11,21 +11,21 @@ A data root other than the production (e.g. a pilot, MSCOFD_DATA_ROOT) can hold 
     slurm.yaml    entries that replace the top-level entries of config/slurm.yaml (e.g. footprint)
 
 What it does:
-1. one call at a time (file lock) and at most one every min_interval_s seconds: a call waits for its turn, and
+1. one call at a time (a lock that holds across nodes, see ledger.DirectoryLock) and at most one every
+   min_interval_s seconds: a call waits for its turn, and
    returns at once when another call started after it was made (that call saw the same states), so the state
    change of a job that just ended is always followed by a full call
 2. the QoS window of the current date (temporary allocation, then the normal limits); pending jobs of an earlier
    window are moved to the current QoS
 3. footprint guard: no submissions while the quota usage or the upload backlog is above the limits
 4. tasks whose job is gone without a done / failed state (preempted, time limit, node failure) and failed tasks
-   are submitted again, at most max_attempts times; they continue where they stopped (hpc/run_task.py)
+   are submitted again, up to max_attempts submissions; they continue where they stopped (hpc/run_task.py)
 5. ready tasks (hpc/ledger.py) are submitted in their order until running + pending jobs reach max_queued
 
 Runs with the Python of the cluster (standard library and PyYAML), outside of the container.
 """
 
 import argparse
-import fcntl
 import os
 import subprocess
 import sys
@@ -78,17 +78,42 @@ def current_window(slurm, now=None):
 
 
 def our_jobs(prefix):
-    """{(run, case): (job id, state, qos)} of the production jobs in the queue"""
+    """
+    the jobs of the production in the queue
+    :return: {(run, case): (job id, state, qos)}, number of jobs (a task with two jobs counts twice)
+    """
     result = subprocess.run(['squeue', '-u', os.environ.get('USER', ''), '-h', '-o', '%i|%j|%T|%q'],
                             capture_output=True, text=True, check=True)
-    jobs = {}
+    jobs, count = {}, 0
     for line in result.stdout.splitlines():
         job_id, name, state, qos = line.split('|')
         if not name.startswith(prefix + '_'):
             continue
         run, _, case = name[len(prefix) + 1:].partition('__')
         jobs[(run, case)] = (job_id, state, qos)
-    return jobs
+        count += 1
+    return jobs, count
+
+
+def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts):
+    """
+    the tasks to submit: failed tasks and interrupted ones (their job is gone without a done / failed state) with
+    submissions left, then the ready tasks (ledger.ready_tasks); a task is in only one of the lists
+    :param attempts_of: function (run, case) -> number of submissions so far
+    :return: retry, ready, exhausted (interrupted tasks without submissions left: (run, case, marker content))
+    """
+    selected = set(cases)
+    retry, exhausted = [], []
+    for (run, case), (state, content) in states.items():
+        if case not in selected:
+            continue
+        interrupted = state in ('submitted', 'running') and (run, case) not in jobs
+        if interrupted or state == 'failed':
+            if attempts_of(run, case) < max_attempts:
+                retry.append((run, case))
+            elif interrupted:
+                exhausted.append((run, case, content))
+    return retry, ledger.ready_tasks(cases, runs, states), exhausted
 
 
 def used_gib(root):
@@ -150,23 +175,26 @@ def main():
 
     # 1. one call at a time, not more often than min_interval_s
     arrival = time.time()
-    lock = open(root / 'state' / 'topup.lock', 'w')
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    stamp = root / 'state' / 'topup.last'
-    if not args.force and not args.dry_run:
-        last = last_call(stamp)
-        if last > arrival:
-            return
-        time.sleep(max(0.0, slurm['min_interval_s'] - (time.time() - last)))
-    if not args.dry_run:
-        stamp.write_text(f"{time.time():.3f}\n")
+    with ledger.DirectoryLock(root / 'state' / 'topup.lockdir'):
+        stamp = root / 'state' / 'topup.last'
+        if not args.force and not args.dry_run:
+            last = last_call(stamp)
+            if last > arrival:
+                return
+            time.sleep(max(0.0, slurm['min_interval_s'] - (time.time() - last)))
+        if not args.dry_run:
+            stamp.write_text(f"{time.time():.3f}\n")
+        top_up(root, slurm, dataset, args)
 
+
+def top_up(root, slurm, dataset, args):
+    """steps 2 to 5, in the lock"""
     # 2. QoS of the current date
     window = current_window(slurm)
     if window is None:
         print("no QoS window for the current date, nothing submitted")
         return
-    jobs = our_jobs(slurm['job_name_prefix'])
+    jobs, queued = our_jobs(slurm['job_name_prefix'])
     for (run, case), (job_id, state, qos) in jobs.items():
         if state == 'PENDING' and qos != window['qos'] and not args.dry_run:
             subprocess.run(['scontrol', 'update', f"jobid={job_id}", f"qos={window['qos']}"], check=False)
@@ -188,25 +216,21 @@ def main():
         selected = set(Path(cases_file).read_text().split())
         cases = [case for case in cases if case in selected]
     states = ledger.read_states(runs, root)
-    retry = []
-    for (run, case), (state, content) in states.items():
-        interrupted = state in ('submitted', 'running') and (run, case) not in jobs
-        if (interrupted or state == 'failed') and case in cases:
-            if attempts_of(root, run, case) < slurm['max_attempts']:
-                retry.append((run, case))
-            elif interrupted and not args.dry_run:
-                ledger.set_state(run, case, 'failed', f"interrupted {slurm['max_attempts']} times ({content})",
-                                 root=root)
+    retry, ready, exhausted = select_tasks(states, jobs, cases, runs, lambda run, case: attempts_of(root, run, case),
+                                           slurm['max_attempts'])
+    for run, case, content in exhausted:
+        if not args.dry_run:
+            ledger.set_state(run, case, 'failed', f"interrupted, {slurm['max_attempts']} submissions ({content})",
+                             root=root)
 
     # 5. submit until max_queued
-    free = window['max_queued'] - len(jobs)
-    waiting = {key: value for key, value in states.items() if key not in retry}
-    candidates = retry + ledger.ready_tasks(cases, runs, waiting)
+    free = window['max_queued'] - queued
+    candidates = retry + ready
     submitted = 0
     for run, case in candidates[:max(free, 0)]:
         submit(root, slurm, window, run, case, args.dry_run)
         submitted += 1
-    print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {len(jobs)} queued, {submitted} submitted "
+    print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {queued} queued, {submitted} submitted "
           f"({len(retry)} again), {len(candidates) - submitted} ready and waiting; {used:.0f} GiB used, "
           f"{backlog:.1f} GiB not uploaded")
 

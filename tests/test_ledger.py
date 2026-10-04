@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 import pytest
@@ -42,7 +43,6 @@ def test_set_state_keeps_one_marker(tmp_path):
 
 
 def test_qos_window_by_date():
-    pytest.importorskip("fcntl")  # topup.py runs on the cluster (Linux)
     from hpc import topup
 
     slurm, _ = topup.load_settings()
@@ -53,7 +53,6 @@ def test_qos_window_by_date():
 
 
 def test_data_root_overrides(tmp_path):
-    pytest.importorskip("fcntl")
     from hpc import topup
 
     slurm, _ = topup.load_settings(tmp_path)
@@ -70,7 +69,6 @@ def test_data_root_overrides(tmp_path):
 
 
 def test_last_call_stamp(tmp_path):
-    pytest.importorskip("fcntl")
     from hpc import topup
 
     stamp = tmp_path / 'topup.last'
@@ -79,3 +77,39 @@ def test_last_call_stamp(tmp_path):
     assert topup.last_call(stamp) == 0.0
     stamp.write_text("1791100000.250\n")
     assert topup.last_call(stamp) == 1791100000.25
+
+
+def test_select_tasks_lists_a_task_once():
+    from hpc import topup
+
+    cases = ledger.case_order(manifest(1))
+    first, second = cases[0], cases[1]
+    states = {('base_lu', first): ('done', ''), ('base_lu', second): ('done', ''),
+              ('16x', first): ('failed', 'gmsh failed'),         # failed, submissions left
+              ('4x', first): ('running', '120 be01'),           # its job is gone: interrupted
+              ('16x', second): ('submitted', '121 attempt=1')}  # its job is in the queue
+    jobs = {('16x', second): ('121', 'PENDING', 'users')}
+    retry, ready, exhausted = topup.select_tasks(states, jobs, cases, RUNS, lambda run, case: 1, 3)
+    assert sorted(retry) == [('16x', first), ('4x', first)]
+    assert not set(retry) & set(ready)
+    assert ('16x', second) not in ready and ('4x', second) in ready
+    assert exhausted == []
+
+    retry, ready, exhausted = topup.select_tasks(states, jobs, cases, RUNS, lambda run, case: 3, 3)
+    assert retry == [] and exhausted == [('4x', first, '120 be01')]
+
+
+def test_directory_lock(tmp_path):
+    path = tmp_path / 'topup.lockdir'
+    with ledger.DirectoryLock(path):
+        assert (path / 'holder').exists()
+        with pytest.raises(FileExistsError):
+            path.mkdir()  # what a second holder would try
+    assert not path.exists()
+
+    path.mkdir()  # left by a holder that was killed
+    old = 1_000_000_000
+    os.utime(path, (old, old))
+    with ledger.DirectoryLock(path, stale_s=600):
+        assert (path / 'holder').exists()
+    assert not path.exists() and not list(tmp_path.glob('*.stale.*'))

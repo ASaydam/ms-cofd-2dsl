@@ -25,7 +25,6 @@ The state of the task (hpc/ledger.py) is set to done at the end, or to failed wi
 """
 
 import csv
-import fcntl
 import json
 import os
 import platform
@@ -211,13 +210,13 @@ class Task:
         (self.folder / 'provenance.json').write_text(json.dumps(record, indent=1, default=str))
         shutil.copy(self.folder / 'provenance.json', self.results / f"{self.case}_provenance.json")
 
-        with open(self.results / 'summary.csv', 'a', newline='') as file:
-            fcntl.flock(file, fcntl.LOCK_EX)
+        # many jobs on different nodes finish at the same time: appended under a lock that holds across nodes
+        with ledger.DirectoryLock(self.results / '.summary.lock'), \
+                open(self.results / 'summary.csv', 'a', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=SUMMARY_FIELDS, extrasaction='ignore', lineterminator='\n')
             if file.tell() == 0:
                 writer.writeheader()
             writer.writerow(record)
-            fcntl.flock(file, fcntl.LOCK_UN)
         return record
 
     def release_seed(self):
