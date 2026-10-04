@@ -67,3 +67,15 @@ def test_data_root_overrides(tmp_path):
     assert slurm['windows'][0]['qos'] == 'asaydam_oct26'
     assert topup.cases_file_of(tmp_path) == tmp_path / 'cases.txt'
     assert topup.cases_file_of(tmp_path, 'other.txt').name == 'other.txt'
+
+
+def test_last_call_stamp(tmp_path):
+    pytest.importorskip("fcntl")
+    from hpc import topup
+
+    stamp = tmp_path / 'topup.last'
+    assert topup.last_call(stamp) == 0.0
+    stamp.write_text("")  # stamp of the earlier version (touched, empty)
+    assert topup.last_call(stamp) == 0.0
+    stamp.write_text("1791100000.250\n")
+    assert topup.last_call(stamp) == 1791100000.25

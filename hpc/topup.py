@@ -11,7 +11,9 @@ A data root other than the production (e.g. a pilot, MSCOFD_DATA_ROOT) can hold 
     slurm.yaml    entries that replace the top-level entries of config/slurm.yaml (e.g. footprint)
 
 What it does:
-1. one call at a time (file lock) and at most one every min_interval_s seconds
+1. one call at a time (file lock) and at most one every min_interval_s seconds: a call waits for its turn, and
+   returns at once when another call started after it was made (that call saw the same states), so the state
+   change of a job that just ended is always followed by a full call
 2. the QoS window of the current date (temporary allocation, then the normal limits); pending jobs of an earlier
    window are moved to the current QoS
 3. footprint guard: no submissions while the quota usage or the upload backlog is above the limits
@@ -57,6 +59,14 @@ def cases_file_of(root, path=None):
     if path:
         return Path(path)
     return Path(root) / 'cases.txt' if (Path(root) / 'cases.txt').exists() else None
+
+
+def last_call(stamp):
+    """start time of the last call (seconds since the epoch, written by the call), 0 when there was none"""
+    try:
+        return float(stamp.read_text())
+    except (FileNotFoundError, ValueError):
+        return 0.0
 
 
 def current_window(slurm, now=None):
@@ -130,7 +140,7 @@ def submit(root, slurm, window, run, case, dry_run):
 def main():
     parser = argparse.ArgumentParser(description="Submit the ready tasks of the production")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--force", action="store_true", help="ignore min_interval_s")
+    parser.add_argument("--force", action="store_true", help="do not wait for min_interval_s")
     parser.add_argument("--cases", help="file with the case names to run (default: all cases of the manifest)")
     args = parser.parse_args()
 
@@ -139,15 +149,17 @@ def main():
     (root / 'state').mkdir(parents=True, exist_ok=True)
 
     # 1. one call at a time, not more often than min_interval_s
+    arrival = time.time()
     lock = open(root / 'state' / 'topup.lock', 'w')
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return
+    fcntl.flock(lock, fcntl.LOCK_EX)
     stamp = root / 'state' / 'topup.last'
-    if not args.force and not args.dry_run and stamp.exists() and time.time() - stamp.stat().st_mtime < slurm['min_interval_s']:
-        return
-    stamp.touch()
+    if not args.force and not args.dry_run:
+        last = last_call(stamp)
+        if last > arrival:
+            return
+        time.sleep(max(0.0, slurm['min_interval_s'] - (time.time() - last)))
+    if not args.dry_run:
+        stamp.write_text(f"{time.time():.3f}\n")
 
     # 2. QoS of the current date
     window = current_window(slurm)

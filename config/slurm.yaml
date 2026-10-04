@@ -32,4 +32,5 @@ footprint:
   pause_backlog_gib: 200  # archives not yet uploaded
 
 max_attempts: 3          # an interrupted or failed task is submitted again at most this many times
-min_interval_s: 60       # topup.py does nothing when it ran less than this many seconds ago
+min_interval_s: 30       # at most one topup.py call per this many seconds; a job that ends waits for its
+                         # turn (or returns when a later call covered it)
