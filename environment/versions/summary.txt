@@ -1,0 +1,9 @@
+OpenFOAM: v2512 (WM_PROJECT_VERSION=v2512, API 2512)
+gmsh: 4.15.2
+vtk: 9.7.0
+python: Python 3.14.7
+numpy: 2.5.3
+h5py: 3.16.0
+rclone: rclone v1.75.1-DEV
+micromamba: 2.9.0
+os: Ubuntu 24.04.3 LTS
