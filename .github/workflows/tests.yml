@@ -1,0 +1,25 @@
+# Runs the tests in the production image (environment/versions/image-digest.txt) on every push of code; the container
+# workflow builds and tests a new image only when environment/ changes.
+name: tests
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['environment/**', '.github/workflows/container.yml', '**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tests in the production image
+        run: |
+          image=ghcr.io/asaydam/ms-cofd-2dsl@$(cat environment/versions/image-digest.txt)
+          # the entrypoint of the OpenFOAM image changes the working directory, bash is started directly
+          docker run --rm --entrypoint bash -v "$PWD:/repo" "$image" \
+            -c "cd /repo && source /opt/mscofd/activate.sh && python -m pytest -q -p no:cacheprovider tests"
