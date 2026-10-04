@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
 
+# the obstacle distance needs scipy (k-d tree), the tests run in the container
+pytest.importorskip("scipy")
+
 from extraction.build_arrays import (FLUID, INLET, OBSTACLE, OUTLET, WALL, build_arrays, build_case, cell_type_mask,
                                      signed_obstacle_distance, wall_distance)
 
@@ -41,9 +44,21 @@ def test_wall_distance():
     assert distance[0, 0] == 0 and distance[0, NY - 1] == 1 and distance[0, NY // 2] == NY // 2
 
 
+def brute_force_distance(cell_type, obstacle):
+    """the obstacle distance compared with every border point (how MS-COFD v4 computed it)"""
+    padded = np.pad(cell_type, 1, mode='edge')
+    solid = ((padded[2:, 1:-1] == 1) & (padded[:-2, 1:-1] == 1) & (padded[1:-1, 2:] == 1) & (padded[1:-1, :-2] == 1))
+    border = np.argwhere(obstacle & ~solid)
+    points = np.argwhere(np.ones(obstacle.shape, dtype=bool))
+    distance = np.sqrt(np.min(np.sum((points[:, None, :] - border[None, :, :]) ** 2, axis=2), axis=1))
+    distance = distance.reshape(obstacle.shape)
+    return np.where(obstacle, -distance, distance)
+
+
 def test_signed_obstacle_distance():
     obstacle = square_obstacle()
-    distance = signed_obstacle_distance(cell_type_mask(obstacle), obstacle, chunk_size=64)
+    distance = signed_obstacle_distance(cell_type_mask(obstacle), obstacle)
+    assert np.array_equal(distance, brute_force_distance(cell_type_mask(obstacle), obstacle))
 
     assert distance[15, 8] == 0                         # border point
     assert distance[17, 10] < 0                         # inside the obstacle

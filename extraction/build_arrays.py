@@ -1,8 +1,9 @@
 """
-Builds the array of one resolution from the CSV files exported by extract_fields.py.
+Builds the 6 channel arrays of the dataset from the resampled flow fields.
 
-The array has the shape (cases, 6, nx, ny), nx along the flow (inlet at x = 0), ny across the channel, and the
-channels of the MS-COFD file (mscofd2000_v4.h5):
+The fields come from extraction/resample_vtk.py (one case at a time, in the pipeline), or from the CSV files of
+extraction/extract_fields.py (ParaView, how MS-COFD v4 was made; kept to compare both). A sample has the shape
+(6, nx, ny), nx along the flow (inlet at x = 0), ny across the channel, and the channels of MS-COFD:
 
     0  u_x            x velocity (m/s)
     1  u_y            y velocity (m/s)
@@ -13,17 +14,10 @@ channels of the MS-COFD file (mscofd2000_v4.h5):
                       negative inside the obstacle
 
 The flow channels are the converged solution (last time step). The geometry channels are made from the obstacle
-points of the same export: ParaView marks the grid points inside the obstacle (outside of the mesh) as not valid.
-Released extracts have no valid point mask, their obstacle points are the ones with u_x == 0 (this gives the
-released cell type channel for all 1000 released smaller / larger base cases).
+points of the same resampling: the grid points inside the obstacle (outside of the mesh) are not valid.
+Extracts without a valid point mask (released v4 extracts) use the points with u_x == 0 as obstacle points.
 
-Files written to the output folder:
-
-    <resolution>_tlast_6ch.npy   the array, float32 by default
-    cases.csv                    case name of every row
-
-The cases are ordered by the name of their _last_time.csv file. The array is written to disk case by case, so
-the 16x array does not have to fit into memory.
+build_arrays() builds the array of a whole folder of CSV extracts (<resolution>_tlast_6ch.npy and cases.csv).
 """
 
 import csv
@@ -81,13 +75,17 @@ def wall_distance(nx, ny):
     return np.tile(distance, (nx, 1))
 
 
-def signed_obstacle_distance(cell_type, obstacle, chunk_size=2048):
+def signed_obstacle_distance(cell_type, obstacle):
     """
     creates the obstacle_sdf channel: the Euclidean distance (in grid points) of every point to the closest
     border point of the obstacle, negative inside the obstacle.
     A border point is an obstacle point with at least one neighbour (up, down, left, right) that is not a
-    wall or obstacle point.
+    wall or obstacle point. The closest border point is found with a k-d tree (exact, the same values as
+    comparing every point with every border point).
     """
+    # imported here, building the other channels does not need scipy
+    from scipy.spatial import cKDTree
+
     # neighbours outside of the grid are replaced by the point itself
     padded = np.pad(cell_type, 1, mode='edge')
     all_neighbours_solid = ((padded[2:, 1:-1] == OBSTACLE) & (padded[:-2, 1:-1] == OBSTACLE) &
@@ -99,26 +97,22 @@ def signed_obstacle_distance(cell_type, obstacle, chunk_size=2048):
 
     nx, ny = cell_type.shape
     grid_points = np.argwhere(np.ones((nx, ny), dtype=bool))
+    distance, _ = cKDTree(border_points).query(grid_points)
 
-    # all distances at once would need too much memory for 16x, so the grid points are processed in chunks
-    min_distance = np.empty(len(grid_points))
-    for start in range(0, len(grid_points), chunk_size):
-        difference = grid_points[start:start + chunk_size, None, :] - border_points[None, :, :]
-        min_distance[start:start + chunk_size] = np.sqrt(np.min(np.sum(difference ** 2, axis=2), axis=1))
-
-    distance = min_distance.reshape(nx, ny)
+    distance = distance.reshape(nx, ny)
     return np.where(obstacle, -1 * distance, distance)
 
 
-def build_case(csv_file, nx, ny):
+def build_sample(ux, uy, p, valid=None):
     """
-    creates the 6 channel array of a single case
+    creates the 6 channel array of a single case from its resampled fields ((nx, ny) arrays)
+    :param valid: valid point mask (0 inside the obstacle), None for extracts without it (obstacle where u_x == 0)
     """
+    nx, ny = ux.shape
     sample = np.empty((6, nx, ny))
-    ux, uy, p, valid = read_fields(csv_file, nx, ny)
     sample[0], sample[1], sample[2] = ux, uy, p
 
-    # grid points inside the obstacle are outside of the mesh: ParaView marks them as not valid and writes 0
+    # grid points inside the obstacle are outside of the mesh: they are not valid and their values are 0
     obstacle = (valid == 0) if valid is not None else (ux == 0)
 
     cell_type = cell_type_mask(obstacle)
@@ -128,9 +122,16 @@ def build_case(csv_file, nx, ny):
     return sample
 
 
+def build_case(csv_file, nx, ny):
+    """
+    creates the 6 channel array of a single case from a CSV extract
+    """
+    return build_sample(*read_fields(csv_file, nx, ny))
+
+
 def build_arrays(extract_directory, output_directory, resolution, nx, ny, dtype='float32'):
     """
-    builds the array of all the exported cases of one resolution
+    builds the array of all the exported cases of one resolution from CSV extracts (extract_fields.py)
     :param extract_directory: folder of the CSV files (output of extract_fields.py)
     :param output_directory: folder of the .npy file
     :param resolution: base or 16x, used in the file name

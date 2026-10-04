@@ -43,7 +43,7 @@ def test_relative_difference_and_upsample():
 def test_obstacle_geometry_stays_clear_of_the_channel_walls():
     row = {'x1': '100', 'x2': '160', 'x3': '160', 'x4': '100', 'y1': '5', 'y2': '5', 'y3': '115', 'y4': '115',
            'centroid_x': '130'}
-    (xmin, ymin, xmax, ymax), x_centroid, x_wake = obstacle_geometry(row)
+    (xmin, ymin, xmax, ymax), x_centroid, x_wake = obstacle_geometry(row, {'length': 260, 'height': 120})
     assert (xmin, xmax) == (0.09, 0.17)
     assert ymin == 0.001 and ymax == 0.119
     assert x_centroid == 0.13 and x_wake == 0.18

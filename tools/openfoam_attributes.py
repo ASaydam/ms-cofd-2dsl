@@ -18,6 +18,8 @@ where integrated; the first 5 mm of the channel are left out where noted, the in
     max_wall_shear, front_pressure, base_pressure              obstacle faces (wallShearStress, surfaces);
                                                                base pressure = mean p on the rear 10 % of its length
     dp_inlet_outlet            area average of p on the inlet minus the outlet (surfaceFieldValue)
+    dp_sections                average p on the cross-section 10 mm behind the inlet minus the one 10 mm before the
+                               outlet (sets), without the singular inlet corners
     peak_vorticity             largest |vorticity| of the cells, first 5 mm left out (vorticity)
     dissipation                nu * sum of |grad U|^2 * cell area, first 5 mm left out (grad)
     recirculation_area_mm2     area of the cells with u_x < 0
@@ -42,36 +44,39 @@ DEPTH = 0.01     # m, thickness of the 2D meshes
 
 FIELDS = ['case_name', 'resolution', 'status', 'time', 'cells', 'faces', 'Fx', 'Fy', 'Fx_pressure', 'Fy_pressure',
           'Fx_viscous', 'Fy_viscous', 'max_wall_shear', 'front_pressure', 'base_pressure', 'dp_inlet_outlet',
-          'peak_vorticity', 'dissipation', 'recirculation_area_mm2', 'recirculation_length_mm', 'flow_split_upper',
-          'wake_min_u_x']
+          'dp_sections', 'peak_vorticity', 'dissipation', 'recirculation_area_mm2', 'recirculation_length_mm',
+          'flow_split_upper', 'wake_min_u_x']
 
 RE_VECTOR = re.compile(r"\(([-\d.eE+]+)\s+([-\d.eE+]+)\s+[-\d.eE+]+\)")
 
 
 # ---------------------------------------------------------------------------------------------------- run (OpenFOAM)
 
-def obstacle_geometry(row, margin=10.0):
+def obstacle_geometry(row, domain, margin=10.0):
     """
-    box around the obstacle (bounding box + margin, kept 1 mm away from the channel walls), x of its centroid and
-    x 20 mm behind it, all in m
+    box around the obstacle (bounding box + margin, kept 1 mm away from the channel walls and ends), x of its
+    centroid and x 20 mm behind it, all in m
+    :param domain: domain block of config/dataset.yaml (length and height in mm)
     """
+    length, height = domain['length'], domain['height']
     xs = [float(row[k]) for k in ('x1', 'x2', 'x3', 'x4', 'z11', 'z21', 'z31', 'z41') if row.get(k)]
     ys = [float(row[k]) for k in ('y1', 'y2', 'y3', 'y4', 'z12', 'z22', 'z32', 'z42') if row.get(k)]
     box = [max(min(xs) - margin, 1) / 1000, max(min(ys) - margin, 1) / 1000,
-           min(max(xs) + margin, 259) / 1000, min(max(ys) + margin, 119) / 1000]
-    return box, float(row['centroid_x']) / 1000, min(max(xs) + 20, 259) / 1000
+           min(max(xs) + margin, length - 1) / 1000, min(max(ys) + margin, height - 1) / 1000]
+    return box, float(row['centroid_x']) / 1000, min(max(xs) + 20, length - 1) / 1000
 
 
-def run(cases, manifest_path, resolutions):
+def run(cases, manifest_path, resolutions, domain):
     with open(manifest_path, newline='') as file:
         manifest = {row['case_name']: row for row in csv.DictReader(file)}
 
     for resolution in resolutions:
         for case_folder in sorted(path for path in (cases / resolution).iterdir() if path.is_dir()):
             work = cases.parent / "openfoam-attributes" / resolution / case_folder.name
-            box, x_centroid, x_wake = obstacle_geometry(manifest[case_folder.name])
+            box, x_centroid, x_wake = obstacle_geometry(manifest[case_folder.name], domain)
+            size = [domain['length'] / 1000, domain['height'] / 1000]
             result = subprocess.run(["bash", str(SCRIPT), str(case_folder), str(work)] +
-                                    [str(value) for value in box + [x_centroid, x_wake]],
+                                    [str(value) for value in box + [x_centroid, x_wake] + size],
                                     capture_output=True, text=True)
             status = "ok" if result.returncode == 0 else "failed"
             (work / "status").write_text(status + "\n")
@@ -168,6 +173,14 @@ def collect_case(work):
     row['flow_split_upper'] = float(above / (above + below))
     wake = np.array(read_raw(glob.glob(os.path.join(lines, "wakeLine_U.xy"))[0]))
     row['wake_min_u_x'] = float(wake[:, 1].min())
+
+    # pressure drop between cross-sections 10 mm behind the inlet and 10 mm before the outlet (the area average on
+    # the inlet patch includes the singular inlet corners, the cross-sections do not)
+    def section_pressure(name):
+        line = np.array(read_raw(glob.glob(os.path.join(lines, f"{name}_p.xy"))[0]))
+        return integrate(line[:, 1], line[:, 0]) / (line[-1, 0] - line[0, 0])
+
+    row['dp_sections'] = float(section_pressure("inletSection") - section_pressure("outletSection"))
     return row
 
 
@@ -199,13 +212,21 @@ def main():
     parser = argparse.ArgumentParser(description="Flow attributes computed with OpenFOAM")
     parser.add_argument("step", choices=["run", "collect"], help="run (with OpenFOAM) or collect (with numpy)")
     parser.add_argument("cases", help="folder with one sub-folder per resolution, e.g. pilot/cases")
-    parser.add_argument("--manifest", default=str(REPO_ROOT / "data" / "released_manifest.csv"),
-                        help="manifest with the obstacle coordinates of the cases (run)")
+    parser.add_argument("--manifest", default=None,
+                        help="manifest with the obstacle coordinates of the cases (run), default: paths.manifest of "
+                             "config/dataset.yaml")
+    parser.add_argument("--domain", type=float, nargs=2, default=None,
+                        help="domain length and height in mm (run), default: domain of config/dataset.yaml")
     parser.add_argument("--resolutions", nargs="+", default=["base", "16x"])
     args = parser.parse_args()
 
     if args.step == "run":
-        run(Path(args.cases), args.manifest, args.resolutions)
+        # imported here, the run step reads the configuration only when a default is needed
+        from utils import load_config
+        config = load_config() if args.manifest is None or args.domain is None else None
+        manifest = args.manifest or config['paths']['manifest']
+        domain = ({'length': args.domain[0], 'height': args.domain[1]} if args.domain else config['domain'])
+        run(Path(args.cases), manifest, args.resolutions, domain)
     else:
         collect(Path(args.cases), args.resolutions)
 

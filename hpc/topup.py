@@ -1,0 +1,187 @@
+"""
+Keeps the production queue filled, within the limits of config/slurm.yaml. It is not a daemon: every job calls it
+when it ends (hpc/job_task.sh), and it is called during monitoring. Each call does one squeue and returns.
+
+    python3 hpc/topup.py                 submit what is ready, up to the limits
+    python3 hpc/topup.py --dry-run       only print what would be submitted
+    python3 hpc/topup.py --cases FILE    only the cases listed in FILE (one name per line), e.g. the pilot
+
+What it does:
+1. one call at a time (file lock) and at most one every min_interval_s seconds
+2. the QoS window of the current date (temporary allocation, then the normal limits); pending jobs of an earlier
+   window are moved to the current QoS
+3. footprint guard: no submissions while the quota usage or the upload backlog is above the limits
+4. tasks whose job is gone without a done / failed state (preempted, time limit, node failure) and failed tasks
+   are submitted again, at most max_attempts times; they continue where they stopped (hpc/run_task.py)
+5. ready tasks (hpc/ledger.py) are submitted in their order until running + pending jobs reach max_queued
+
+Runs with the Python of the cluster (standard library and PyYAML), outside of the container.
+"""
+
+import argparse
+import fcntl
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import ledger  # noqa: E402
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def load_settings():
+    with open(REPO / 'config' / 'slurm.yaml') as file:
+        slurm = yaml.safe_load(file)
+    with open(REPO / 'config' / 'dataset.yaml') as file:
+        dataset = yaml.safe_load(file)
+    return slurm, dataset
+
+
+def current_window(slurm, now=None):
+    now = now or datetime.now().astimezone()
+    for window in slurm['windows']:
+        if datetime.fromisoformat(window['start']) <= now < datetime.fromisoformat(window['end']):
+            return window
+    return None
+
+
+def our_jobs(prefix):
+    """{(run, case): (job id, state, qos)} of the production jobs in the queue"""
+    result = subprocess.run(['squeue', '-u', os.environ.get('USER', ''), '-h', '-o', '%i|%j|%T|%q'],
+                            capture_output=True, text=True, check=True)
+    jobs = {}
+    for line in result.stdout.splitlines():
+        job_id, name, state, qos = line.split('|')
+        if not name.startswith(prefix + '_'):
+            continue
+        run, _, case = name[len(prefix) + 1:].partition('__')
+        jobs[(run, case)] = (job_id, state, qos)
+    return jobs
+
+
+def used_gib(root):
+    """quota usage of the user in GiB (beegfs-ctl), the last known value when beegfs-ctl is not available"""
+    cache = root / 'state' / 'quota_used_gib'
+    try:
+        result = subprocess.run(['beegfs-ctl', '--getquota', '--uid', os.environ.get('USER', ''), '--csv'],
+                                capture_output=True, text=True, timeout=60)
+        for line in result.stdout.splitlines():
+            fields = line.split(',')
+            if fields and fields[0] == os.environ.get('USER'):
+                value = int(fields[2]) / 2 ** 30
+                cache.write_text(f"{value:.1f}\n")
+                return value
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+        pass
+    return float(cache.read_text()) if cache.exists() else 0.0
+
+
+def backlog_gib(root):
+    """archives waiting for the upload, in GiB"""
+    return sum(path.stat().st_size for path in (root / 'archives').glob('*/*.tar.zst*')) / 2 ** 30
+
+
+def attempts_of(root, run, case):
+    path = root / 'state' / run / f"{case}.attempts"
+    return int(path.read_text()) if path.exists() else 0
+
+
+def submit(root, slurm, window, run, case, dry_run):
+    settings = slurm['runs'][run]
+    logs = root / 'logs' / run
+    logs.mkdir(parents=True, exist_ok=True)
+    command = ['sbatch', '--parsable', f"--job-name={slurm['job_name_prefix']}_{run}__{case}",
+               f"--account={slurm['account']}", f"--partition={slurm['partition']}", f"--qos={window['qos']}",
+               '--ntasks=1', '--cpus-per-task=1', f"--mem={settings['mem']}", f"--time={settings['time']}",
+               '--requeue', f"--output={logs / (case + '-%j.out')}", '--export=ALL',
+               str(REPO / 'hpc' / 'job_task.sh'), run, case]
+    if dry_run:
+        print(' '.join(command))
+        return
+    job_id = subprocess.run(command, capture_output=True, text=True, check=True).stdout.strip().split(';')[0]
+    attempts = attempts_of(root, run, case) + 1
+    ledger.state_folder(run, root).mkdir(parents=True, exist_ok=True)
+    (root / 'state' / run / f"{case}.attempts").write_text(f"{attempts}\n")
+    ledger.set_state(run, case, 'submitted', f"{job_id} attempt={attempts}", root=root)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Submit the ready tasks of the production")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="ignore min_interval_s")
+    parser.add_argument("--cases", help="file with the case names to run (default: all cases of the manifest)")
+    args = parser.parse_args()
+
+    slurm, dataset = load_settings()
+    root = ledger.data_root()
+    (root / 'state').mkdir(parents=True, exist_ok=True)
+
+    # 1. one call at a time, not more often than min_interval_s
+    lock = open(root / 'state' / 'topup.lock', 'w')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return
+    stamp = root / 'state' / 'topup.last'
+    if not args.force and not args.dry_run and stamp.exists() and time.time() - stamp.stat().st_mtime < slurm['min_interval_s']:
+        return
+    stamp.touch()
+
+    # 2. QoS of the current date
+    window = current_window(slurm)
+    if window is None:
+        print("no QoS window for the current date, nothing submitted")
+        return
+    jobs = our_jobs(slurm['job_name_prefix'])
+    for (run, case), (job_id, state, qos) in jobs.items():
+        if state == 'PENDING' and qos != window['qos'] and not args.dry_run:
+            subprocess.run(['scontrol', 'update', f"jobid={job_id}", f"qos={window['qos']}"], check=False)
+
+    # 3. footprint guard
+    used, backlog = used_gib(root), backlog_gib(root)
+    footprint = slurm['footprint']
+    if used > footprint['pause_used_gib'] or backlog > footprint['pause_backlog_gib']:
+        print(f"paused: {used:.0f} GiB used (limit {footprint['pause_used_gib']}), "
+              f"{backlog:.0f} GiB not uploaded (limit {footprint['pause_backlog_gib']})")
+        return
+
+    # 4. interrupted and failed tasks
+    runs = list(dataset['runs'])
+    manifest = ledger.read_manifest(root / 'geometry' / 'manifest.csv')
+    cases = ledger.case_order(manifest)
+    if args.cases:
+        selected = set(Path(args.cases).read_text().split())
+        cases = [case for case in cases if case in selected]
+    states = ledger.read_states(runs, root)
+    retry = []
+    for (run, case), (state, content) in states.items():
+        interrupted = state in ('submitted', 'running') and (run, case) not in jobs
+        if (interrupted or state == 'failed') and case in cases:
+            if attempts_of(root, run, case) < slurm['max_attempts']:
+                retry.append((run, case))
+            elif interrupted and not args.dry_run:
+                ledger.set_state(run, case, 'failed', f"interrupted {slurm['max_attempts']} times ({content})",
+                                 root=root)
+
+    # 5. submit until max_queued
+    free = window['max_queued'] - len(jobs)
+    waiting = {key: value for key, value in states.items() if key not in retry}
+    candidates = retry + ledger.ready_tasks(cases, runs, waiting)
+    submitted = 0
+    for run, case in candidates[:max(free, 0)]:
+        submit(root, slurm, window, run, case, args.dry_run)
+        submitted += 1
+    print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {len(jobs)} queued, {submitted} submitted "
+          f"({len(retry)} again), {len(candidates) - submitted} ready and waiting; {used:.0f} GiB used, "
+          f"{backlog:.1f} GiB not uploaded")
+
+
+if __name__ == "__main__":
+    main()

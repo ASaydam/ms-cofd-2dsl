@@ -5,18 +5,24 @@
 # around the obstacle are moved to their own patch there (topoSet + createPatch); the case itself is not changed.
 # OpenFOAM has to be loaded.
 #
-#   bash openfoam_attributes.sh <case folder> <work folder> <xmin> <ymin> <xmax> <ymax> <x centroid> <x wake>
+#   bash openfoam_attributes.sh <case folder> <work folder> <xmin> <ymin> <xmax> <ymax> <x centroid> <x wake> \
+#       [<domain length> <domain height>]
 #
-# box, x centroid (obstacle centroid) and x wake (20 mm behind the obstacle) in m.
+# box, x centroid (obstacle centroid), x wake (20 mm behind the obstacle) and the domain size in m (default
+# 0.26 x 0.12, the domain of MS-COFD v4).
 # Results in the work folder (read by tools/openfoam_attributes.py):
 #   postProcessing/obstacleForces/<time>/force*.dat          total, pressure and viscous force (rho = 1)
 #   postProcessing/obstacleSurface/<time>/*_obstacle.raw     p and wallShearStress on the obstacle faces
 #   postProcessing/inletPressure, outletPressure/<time>/     area average of p on the inlet and the outlet
-#   postProcessing/lines/<time>/*_U.xy                        U across the channel at x centroid and x wake
+#   postProcessing/lines/<time>/*_U.xy, *_p.xy                U and p across the channel at x centroid, x wake and
+#                                                            10 mm from the inlet and the outlet
 #   <time>/U, vorticity, grad(U), C, V                        cell values, cell centres and cell volumes
 
 set -e
 case_folder=$1; work=$2; xmin=$3; ymin=$4; xmax=$5; ymax=$6; x_centroid=$7; x_wake=$8
+length=${9:-0.26}; height=${10:-0.12}
+x_inlet_section=0.01
+x_outlet_section=$(awk -v l="$length" 'BEGIN {print l - 0.01}')
 PYTHON=${PYTHON:-python3}
 
 rm -rf "$work"; mkdir -p "$work"
@@ -45,14 +51,17 @@ EOT
 topoSet -latestTime > log.topoSet 2>&1
 createPatch -overwrite > log.createPatch 2>&1
 
-# createPatch (v1706) does not add the new patch to the fields: same conditions as the other walls,
-# phi is left out (its fixedWalls size changed, simpleFoam computes it from U)
+# older createPatch versions (v1706) do not add the new patch to the fields: same conditions as the other walls,
+# added where the field has no obstacle entry yet; phi is left out (its fixedWalls size changed, simpleFoam
+# computes it from U)
 rm -f "$latest/phi"
 $PYTHON - "$latest" <<'PY'
 import sys
 for field, condition in (("p", "zeroGradient"), ("U", "noSlip")):
     path = f"{sys.argv[1]}/{field}"
     text = open(path).read()
+    if "\n    obstacle\n" in text:
+        continue
     entry = f"\n    obstacle\n    {{\n        type            {condition};\n    }}\n    fixedWalls\n"
     assert "\n    fixedWalls\n" in text, path
     open(path, "w").write(text.replace("\n    fixedWalls\n", entry, 1))
@@ -148,12 +157,14 @@ functions
         writeInterval   1;
         setFormat       raw;
         interpolationScheme cellPoint;
-        fields          (U);
+        fields          (U p);
         sets
         (
-            centroidBelow { type uniform; axis y; start ($x_centroid 0 0.005); end ($x_centroid 0.12 0.005); nPoints 2401; }
-            centroidAbove { type uniform; axis y; start ($x_centroid 0.12 0.005); end ($x_centroid 0 0.005); nPoints 2401; }
-            wakeLine      { type uniform; axis y; start ($x_wake 0 0.005); end ($x_wake 0.12 0.005); nPoints 2401; }
+            centroidBelow { type uniform; axis y; start ($x_centroid 0 0.005); end ($x_centroid $height 0.005); nPoints 2401; }
+            centroidAbove { type uniform; axis y; start ($x_centroid $height 0.005); end ($x_centroid 0 0.005); nPoints 2401; }
+            wakeLine      { type uniform; axis y; start ($x_wake 0 0.005); end ($x_wake $height 0.005); nPoints 2401; }
+            inletSection  { type uniform; axis y; start ($x_inlet_section 0 0.005); end ($x_inlet_section $height 0.005); nPoints 2401; }
+            outletSection { type uniform; axis y; start ($x_outlet_section 0 0.005); end ($x_outlet_section $height 0.005); nPoints 2401; }
         );
     }
 }
