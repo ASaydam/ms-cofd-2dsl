@@ -24,11 +24,12 @@ export MSCOFD_HOST_PYTHON=${MSCOFD_HOST_PYTHON:-/kuacc/apps/anaconda/2024.02/bin
 
 export APPTAINER_CACHEDIR=$MSCOFD_HOME/container/cache
 export APPTAINER_TMPDIR=$MSCOFD_HOME/container/tmp
+export APPTAINER_CONFIGDIR=$MSCOFD_HOME/container/config   # otherwise Apptainer creates ~/.apptainer
 export RCLONE_CONFIG=$MSCOFD_HOME/config/rclone.conf
 export XDG_CACHE_HOME=$MSCOFD_HOME/cache
 export MPLCONFIGDIR=$MSCOFD_HOME/cache/matplotlib
 
-mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$MSCOFD_HOME/container/home" "$MSCOFD_HOME/config" \
-    "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$MSCOFD_DATA_ROOT/state" "$MSCOFD_DATA_ROOT/logs"
+mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$APPTAINER_CONFIGDIR" "$MSCOFD_HOME/container/home" \
+    "$MSCOFD_HOME/config" "$XDG_CACHE_HOME" "$MPLCONFIGDIR" "$MSCOFD_DATA_ROOT/state" "$MSCOFD_DATA_ROOT/logs"
 
 module load apptainer/1.4.1 2> /dev/null || true
