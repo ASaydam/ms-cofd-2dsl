@@ -132,6 +132,8 @@ bash hpc/deploy.sh                                       # on your computer
 source repo/hpc/env.sh
 bash repo/hpc/pull_image.sh sha256:<digest>
 apptainer exec "$MSCOFD_IMAGE" bash -c "source /opt/mscofd/activate.sh && cd $MSCOFD_REPO && python main.py geometry"
+# rclone remote in $MSCOFD_HOME/config/rclone.conf; for Google Drive with your own OAuth client ID (rclone's shared
+# client ID is being retired), authorised on a computer with a browser: rclone authorize "drive" <client id> <secret>
 echo "remote:ms-cofd-2dsl/archives" > "$MSCOFD_HOME/config/remote"   # rclone target of the archives
 python3 repo/hpc/topup.py                                # starts the production; every job keeps it going
 python3 repo/hpc/status.py
