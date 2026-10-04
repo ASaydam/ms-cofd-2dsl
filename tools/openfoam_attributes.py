@@ -117,9 +117,13 @@ def collect_case(work):
     time = next(p for p in os.listdir(work) if re.fullmatch(r"[0-9.]+", p))
     row = {'time': time}
 
-    # forces
-    vectors = [(float(x), float(y)) for x, y in RE_VECTOR.findall(
-        last_values(os.path.join(work, "postProcessing", "obstacleForces", "*", "force*.dat")))]
+    # forces: total, pressure and viscous vectors, written as "(x y z)" groups by older OpenFOAM versions (v1706)
+    # and as plain columns by newer ones (v2512: time total_x total_y total_z pressure_x ... viscous_z)
+    line = last_values(os.path.join(work, "postProcessing", "obstacleForces", "*", "force*.dat"))
+    vectors = [(float(x), float(y)) for x, y in RE_VECTOR.findall(line)]
+    if len(vectors) < 3:
+        values = [float(value) for value in line.split()[1:10]]
+        vectors = [(values[0], values[1]), (values[3], values[4]), (values[6], values[7])]
     (row['Fx'], row['Fy']), (row['Fx_pressure'], row['Fy_pressure']), (row['Fx_viscous'], row['Fy_viscous']) = vectors[:3]
 
     # obstacle surface

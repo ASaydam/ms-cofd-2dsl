@@ -110,7 +110,7 @@ class Task:
         if not (self.seed / 'system' / 'controlDict').exists():
             raise RuntimeError(f"no {source} solution of {self.case} in {self.seed}")
         self.timed('mapFields', self.shell, ['mapFields', str(self.seed), '-consistent', '-sourceTime', 'latestTime',
-                                             '-mapMethod', 'cellVolumeWeight'], 'log.mapFields')
+                                             '-mapMethod', 'cellPointInterpolate'], 'log.mapFields')
         (self.folder / 'mapped').write_text(f"{self.seed}\n")
 
     def solve(self):

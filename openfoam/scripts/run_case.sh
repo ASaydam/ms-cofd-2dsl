@@ -71,7 +71,7 @@ case "$mode" in
         # start from the latest solution of another case with the same geometry (written by create_foam.py),
         # otherwise from the uniform fields of the 0 folder
         if [ -f init_from ]; then
-            mapFields "$(cat init_from)" -consistent -sourceTime latestTime -mapMethod cellVolumeWeight \
+            mapFields "$(cat init_from)" -consistent -sourceTime latestTime -mapMethod cellPointInterpolate \
                 > log.mapFields 2>&1
         fi
 
