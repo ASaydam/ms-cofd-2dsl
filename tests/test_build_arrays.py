@@ -96,30 +96,3 @@ def test_build_arrays_writes_one_array_and_the_case_order(tmp_path):
     assert array.shape == (3, 6, NX, NY) and array.dtype == np.float32
     # sorted by file name, as the released arrays: "..._100_last_time" < "..._10_last_time" < "..._1_last_time"
     assert [row.split(',')[1] for row in order] == ["larger_circle_100", "larger_circle_10", "larger_circle_1"]
-
-
-def test_build_dataset(tmp_path):
-    pytest.importorskip("h5py")
-    pytest.importorskip("scipy")
-    import h5py
-    from dataset.build_dataset import build_dataset
-
-    # a coarse and a 4 times finer grid with the same square obstacle
-    for resolution, factor in (("base", 1), ("16x", 4)):
-        extracts = tmp_path / f"extracts-{resolution}"
-        extracts.mkdir()
-        obstacle = np.kron(square_obstacle(), np.ones((factor, factor), dtype=bool))
-        for name in ("normal_rectangle_1", "larger_circle_2"):
-            write_extract(extracts / f"{name}_last_time.csv", *flow_fields(obstacle), valid=(~obstacle).astype(float))
-        build_arrays(extracts, tmp_path / resolution, resolution, NX * factor, NY * factor)
-
-    build_dataset(tmp_path / "base", tmp_path / "16x", tmp_path / "ms-cofd.h5")
-    with h5py.File(tmp_path / "ms-cofd.h5", "r") as file:
-        assert file["base_tlast_6ch"].shape == (2, 6, NX, NY)
-        assert file["16x_tlast_6ch"].shape == (2, 6, 4 * NX, 4 * NY)
-        assert file["resampled_16x_tlast_6ch"].shape == (2, 6, NX, NY)
-        assert len(file["metadata"]) == 35
-        assert [name.decode() for name in file["metadata/case_name"][:]] == ["larger_circle_2", "normal_rectangle_1"]
-        assert list(file["metadata/generation_phase"][:]) == [2, 1]
-        fine = file["16x_tlast_6ch"][0]
-        assert np.array_equal(file["resampled_16x_tlast_6ch"][0], fine.reshape(6, NX, 4, NY, 4).max(axis=(2, 4)))

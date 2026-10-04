@@ -14,7 +14,6 @@ output of the previous one from disk:
 
     python main.py build-arrays base
     python main.py build-arrays 16x
-    python main.py build-dataset  # MS-COFD .h5 file in the layout of mscofd2000_v4.h5
 
 Settings are in config/dataset.yaml, every stage has options to work on a part of the dataset, e.g.
 
@@ -64,14 +63,6 @@ def run_build_arrays(config, args):
                  dtype=args.dtype)
 
 
-def run_build_dataset(config, args):
-    # imported here, h5py and scipy are only needed for this stage
-    from dataset.build_dataset import build_dataset
-
-    build_dataset(config['paths']['arrays'] / 'base', config['paths']['arrays'] / '16x',
-                  args.output or config['paths']['dataset'], dtype=args.dtype)
-
-
 def main():
     # the config file is read first, the defaults of the other options come from it
     config_option = argparse.ArgumentParser(add_help=False)
@@ -118,9 +109,6 @@ def main():
     arrays.add_argument("--dtype", default="float32", choices=["float32", "float64"],
                         help="float32 keeps every digit of the exported fields (5 significant digits)")
 
-    dataset = stages.add_parser("build-dataset", help="build the MS-COFD .h5 file from the base and 16x arrays")
-    dataset.add_argument("--output", default=None, help="default: paths.dataset of config/dataset.yaml")
-    dataset.add_argument("--dtype", default="float32", choices=["float32", "float64"])
 
     args = parser.parse_args()
 
@@ -132,8 +120,6 @@ def main():
         run_foam_setup(config, args)
     if args.stage == "build-arrays":
         run_build_arrays(config, args)
-    if args.stage == "build-dataset":
-        run_build_dataset(config, args)
 
 
 if __name__ == "__main__":
