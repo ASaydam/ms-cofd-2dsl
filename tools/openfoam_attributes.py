@@ -25,8 +25,9 @@ where integrated; the first 5 mm of the channel are left out where noted, the in
     peak_vorticity             largest |vorticity| of the cells, first 5 mm left out (vorticity)
     mean_vorticity             |vorticity| averaged over the cells (area weighted), first 5 mm left out
     dissipation                nu * sum of |grad U|^2 * cell area, first 5 mm left out (grad)
-    recirculation_area_mm2     area of the cells with u_x < 0
-    recirculation_length_mm    furthest cell with u_x < 0 behind the obstacle, from its downstream end
+    recirculation_area_mm2     area of the cells with u_x < 0 connected to the obstacle (connected over the internal
+                               faces; a separate thin reverse-flow layer along a channel wall does not count)
+    recirculation_length_mm    furthest of these cells behind the obstacle, from its downstream end
     flow_split_upper           share of the flow above the obstacle at its centroid (sets)
     wake_min_u_x               smallest u_x 20 mm behind the obstacle (sets)
     outlet_reverse_flow        flow rate with u_x < 0 in the last 5 mm of the channel, relative to the net flow rate
@@ -103,6 +104,40 @@ def read_field(path):
     return array if array.size == count else array.reshape(count, -1)
 
 
+def read_list(path):
+    """an ascii OpenFOAM list of integers (polyMesh owner, neighbour)"""
+    import numpy as np
+
+    lines = Path(path).read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip().isdigit() and lines[i + 1].strip() == '(')
+    return np.array(' '.join(lines[start + 2:start + 2 + int(lines[start])]).split(), dtype=int)
+
+
+def patch_faces(boundary, name):
+    """first face and number of faces of a patch (polyMesh/boundary)"""
+    block = re.search(r"\n\s*" + name + r"\s*\{([^}]*)\}", Path(boundary).read_text()).group(1)
+    return int(re.search(r"startFace\s+(\d+)", block).group(1)), int(re.search(r"nFaces\s+(\d+)", block).group(1))
+
+
+def obstacle_wake(work, ux):
+    """cells with u_x < 0 connected to the obstacle: connected components of these cells over the internal faces,
+    the components with a face on the obstacle"""
+    import numpy as np
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    mesh = Path(work) / "constant" / "polyMesh"
+    owner, neighbour = read_list(mesh / "owner"), read_list(mesh / "neighbour")
+    start, count = patch_faces(mesh / "boundary", "obstacle")
+    reverse = ux < 0
+    internal = owner[:len(neighbour)]
+    both = reverse[internal] & reverse[neighbour]
+    graph = coo_matrix((np.ones(both.sum()), (internal[both], neighbour[both])), shape=(len(ux), len(ux)))
+    labels = connected_components(graph, directed=False)[1]
+    next_to_obstacle = owner[start:start + count]
+    return reverse & np.isin(labels, labels[next_to_obstacle[reverse[next_to_obstacle]]])
+
+
 def read_raw(path):
     """rows of a raw surface or set file"""
     return [[float(v) for v in line.split()] for line in open(path) if line.strip() and not line.startswith('#')]
@@ -163,10 +198,10 @@ def collect_case(work):
     row['peak_vorticity'] = float(np.abs(vorticity[region]).max())
     row['mean_vorticity'] = float((np.abs(vorticity[region]) * area[region]).sum() / area[region].sum())
     row['dissipation'] = float(NU * ((in_plane[region] ** 2).sum(axis=1) * area[region]).sum())
-    reverse = ux < 0
-    row['recirculation_area_mm2'] = float(area[reverse].sum() * 1e6)
+    wake = obstacle_wake(work, ux)
+    row['recirculation_area_mm2'] = float(area[wake].sum() * 1e6)
     x_end = x_faces.max() * 1000
-    behind = reverse & (x_mm > x_end)
+    behind = wake & (x_mm > x_end)
     row['recirculation_length_mm'] = float(x_mm[behind].max() - x_end) if behind.any() else 0.0
     end = x_mm > x_mm.max() - 5
     row['outlet_reverse_flow'] = float((np.clip(-ux[end], 0, None) * area[end]).sum() / (ux[end] * area[end]).sum())

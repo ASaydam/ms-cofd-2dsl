@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from tools.flow_attributes import attributes, relative_difference, upsample
 from tools.openfoam_attributes import obstacle_geometry
@@ -23,9 +24,10 @@ def sample_with_wake():
 
 
 def test_attributes_of_a_simple_wake():
+    pytest.importorskip("scipy")
     result, vorticity = attributes(sample_with_wake(), {"length": 260, "height": 120})
     assert math.isclose(result['recirculation_length_mm'], 20 * 260 / 260, rel_tol=0.02)
-    assert result['recirculation_area_mm2'] > 0
+    assert math.isclose(result['recirculation_area_mm2'], 20 * 9, rel_tol=0.02)
     assert 0.4 < result['flow_split_upper'] < 0.6
     assert result['dp_inlet_outlet'] > 0
     assert result['peak_vorticity'] > 0 and vorticity.shape == (NX, NY)
@@ -47,3 +49,13 @@ def test_obstacle_geometry_stays_clear_of_the_channel_walls():
     assert (xmin, xmax) == (0.09, 0.17)
     assert ymin == 0.001 and ymax == 0.119
     assert x_centroid == 0.13 and x_wake == 0.18
+
+
+def test_reverse_flow_along_a_wall_is_not_the_wake():
+    """a thin reverse-flow layer along the bottom wall up to the outlet, not connected to the obstacle"""
+    pytest.importorskip("scipy")
+    sample = sample_with_wake()
+    sample[0][150:, 1:3] = -0.001
+    result, _ = attributes(sample, {"length": 260, "height": 120})
+    assert math.isclose(result['recirculation_length_mm'], 20, rel_tol=0.02)
+    assert math.isclose(result['recirculation_area_mm2'], 20 * 9, rel_tol=0.02)

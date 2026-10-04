@@ -7,8 +7,9 @@ the coarse mesh gets right and which it gets wrong.
 
 Attributes computed from the arrays (on each resolution's own grid, mm and m/s):
 
-    recirculation_length_mm   furthest reverse flow (u_x < 0) behind the obstacle, from its downstream end
-    recirculation_area_mm2    fluid area with u_x < 0
+    recirculation_length_mm   furthest reverse flow (u_x < 0) connected to the obstacle behind it, from its
+                              downstream end (a separate thin reverse-flow layer along a channel wall does not count)
+    recirculation_area_mm2    fluid area with u_x < 0 connected to the obstacle
     flow_split_upper          share of the flow passing above the obstacle (at its centroid)
     dp_inlet_outlet           mean pressure on the inlet minus the outlet column
     dissipation               nu * integral of |grad u|^2 over the fluid (first 5 mm left out: inlet corners)
@@ -54,6 +55,8 @@ def spacing(nx, ny, domain):
 
 def attributes(sample, domain):
     """flow attributes of one (6, nx, ny) sample, domain in mm (length, height)"""
+    from scipy import ndimage
+
     ux, uy, p, cell_type = sample[0], sample[1], sample[2], sample[4]
     nx, ny = ux.shape
     hx, hy = spacing(nx, ny, domain)
@@ -65,7 +68,9 @@ def attributes(sample, domain):
     fluid = cell_type != 1
     x_end = x[obstacle].max()
 
-    reverse = (ux < 0) & fluid
+    labels, _ = ndimage.label((ux < 0) & fluid)
+    touching = labels[ndimage.binary_dilation(obstacle) & (labels > 0)]
+    reverse = np.isin(labels, touching)
     behind = reverse & (x > x_end)
     result = {'recirculation_length_mm': float(x[behind].max() - x_end) if behind.any() else 0.0,
               'recirculation_area_mm2': float(reverse.sum() * hx * hy)}
