@@ -26,10 +26,11 @@ runs:
   4x:      {time: "06:00:00", mem: 3G}
   16x:     {time: "20:00:00", mem: 6G}
 
-# footprint guard (the user quota is 1 TiB): submissions pause above these values (GiB)
+# footprint guard (the user quota is 1 TiB): submissions pause above these values (GiB). /scratch is BeeGFS with
+# buddy mirroring: the quota usage (beegfs-ctl) counts every file twice, so 600 GiB used is ~300 GiB of data.
 footprint:
-  pause_used_gib: 600     # beegfs-ctl --getquota of the user
-  pause_backlog_gib: 200  # archives not yet uploaded
+  pause_used_gib: 600     # beegfs-ctl --getquota of the user (mirrored, twice the data)
+  pause_backlog_gib: 50   # archives not yet uploaded (file sizes, ~100 GiB of quota)
 
 max_attempts: 3          # submissions of a task at most (an interrupted or failed task is submitted again)
 min_interval_s: 30       # at most one topup.py call per this many seconds; a job that ends waits for its
