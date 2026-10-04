@@ -1,0 +1,20 @@
+# Python environment of the MS-COFD-2DSL pipeline (conda-forge). gmsh and VTK are pinned because they define the
+# meshes and the arrays; the other packages take the newest version the solver finds and are recorded in
+# /opt/mscofd/versions of the image (copied to environment/versions/ of the repository).
+name: mscofd
+channels:
+  - conda-forge
+dependencies:
+  - python >=3.12
+  - gmsh =4.15.2      # meshing (gmsh executable)
+  - vtk-base =9.7.0   # resampling the OpenFOAM results to the arrays (no GUI)
+  - numpy
+  - scipy
+  - h5py
+  - pyarrow
+  - pyyaml
+  - matplotlib-base
+  - pytest
+  - rclone
+  - zstd
+  - git
