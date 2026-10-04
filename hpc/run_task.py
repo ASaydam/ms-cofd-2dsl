@@ -87,20 +87,44 @@ class Task:
 
     # --------------------------------------------------------------------------------------------------- steps
 
-    def create_case(self):
-        """steps 1 and 2: a new case folder with the converted mesh (a folder without a finished mesh is redone)"""
-        if (self.folder / 'constant' / 'polyMesh' / 'owner').exists():
-            return
-        shutil.rmtree(self.folder, ignore_errors=True)
-        shutil.copytree(TEMPLATES / self.settings['templates'] / self.resolution, self.folder)
-        shutil.copy(self.config['paths']['geo_files'] / self.resolution / f"{self.case}.geo", self.folder / 'mesh.geo')
+    def mesh_ok(self):
+        log = self.folder / 'log.checkMesh'
+        return log.exists() and "Mesh OK." in log.read_text(errors='replace')
 
+    def create_case(self):
+        """
+        steps 1 and 2: a new case folder with the converted mesh (a folder without a finished mesh is redone). A mesh
+        that fails checkMesh is made again with the next of meshing.variants (gmsh options appended to the .geo
+        file); the number and options of the variant used are written to mesh_variant, the checkMesh logs of the
+        failed variants are kept as log.checkMesh.variant<number>
+        """
+        marker = self.folder / 'mesh_variant'
+        if marker.exists():
+            return
+        if (self.folder / 'constant' / 'polyMesh' / 'owner').exists() and self.mesh_ok():
+            marker.write_text("0\n")  # meshed before the variants were recorded
+            return
+
+        geo = (self.config['paths']['geo_files'] / self.resolution / f"{self.case}.geo").read_text()
         meshing = self.config['meshing']
-        self.timed('gmsh', self.shell, ['gmsh', '-3', 'mesh.geo', '-o', 'mesh.msh', '-format', 'msh2',
-                                        '-nt', str(meshing['threads'])], 'log.gmsh')
-        self.timed('gmshToFoam', self.shell, ['gmshToFoam', 'mesh.msh'], 'log.gmshToFoam')
-        self.shell(['changeDictionary'], 'log.changeDictionary')
-        self.shell(['checkMesh'], 'log.checkMesh', check=False)
+        failed_logs = {}
+        for number, options in enumerate(meshing['variants']):
+            shutil.rmtree(self.folder, ignore_errors=True)
+            shutil.copytree(TEMPLATES / self.settings['templates'] / self.resolution, self.folder)
+            (self.folder / 'mesh.geo').write_text(geo + (f"\n// mesh variant {number}\n{options}\n" if options else ''))
+            for name, text in failed_logs.items():
+                (self.folder / name).write_text(text)
+
+            self.timed('gmsh', self.shell, ['gmsh', '-3', 'mesh.geo', '-o', 'mesh.msh', '-format', 'msh2',
+                                            '-nt', str(meshing['threads'])], 'log.gmsh')
+            self.timed('gmshToFoam', self.shell, ['gmshToFoam', 'mesh.msh'], 'log.gmshToFoam')
+            self.shell(['changeDictionary'], 'log.changeDictionary')
+            self.shell(['checkMesh'], 'log.checkMesh', check=False)
+            if self.mesh_ok():
+                marker.write_text(f"{number} {options}".strip() + "\n")
+                return
+            failed_logs[f"log.checkMesh.variant{number}"] = (self.folder / 'log.checkMesh').read_text(errors='replace')
+        raise RuntimeError(f"checkMesh failed with all {len(meshing['variants'])} mesh variants, see log.checkMesh")
 
     def map_fields(self):
         """step 3: initial fields from the base_lu solution of the case"""
@@ -197,6 +221,8 @@ class Task:
             'clock_time_s': status.get('clock_time'), 'residual_Ux': status.get('residual_Ux'),
             'residual_Uy': status.get('residual_Uy'), 'residual_p': status.get('residual_p'),
             'mesh_ok': status.get('mesh_ok'), 'cells': cells, 'exported_time': exported_time,
+            'mesh_variant': (self.folder / 'mesh_variant').read_text().strip()
+            if (self.folder / 'mesh_variant').exists() else '',
             'peak_memory_kb': max(peaks) if peaks else None, 'timings_s': self.timings,
             'host': platform.node().split('.')[0], 'cpu_model': cpu,
             'node_cpus_allocated': os.environ.get('MSCOFD_NODE_ALLOCATED', ''),

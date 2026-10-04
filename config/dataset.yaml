@@ -67,6 +67,15 @@ meshing:
   threads: 1     # gmsh -nt, threads per mesh (one CPU per job on the cluster, and deterministic meshes)
   workers: 1     # meshes created at the same time
   timeout: 3600  # seconds before a single mesh is given up
+  # a mesh that fails checkMesh is made again with the next variant: gmsh options appended to the .geo file, tried in
+  # this order ('' = the .geo file as written); the variant used is recorded in the provenance of the run
+  # (pilot: 1 of 45 0.25 mm meshes had a folded pair of triangles; Smoothing 5 gave a valid all-quad mesh,
+  # RecombinationAlgorithm 0 a valid mesh with ~4300 triangles, RandomFactor 1e-8 the same mesh, Algorithm 6 crashed)
+  variants:
+    - ''
+    - 'Mesh.Smoothing = 5;'
+    - 'Mesh.Smoothing = 10;'
+    - 'Mesh.RecombinationAlgorithm = 0;'
 
 # The OpenFOAM runs of every case (openfoam/case-templates/<templates>/<resolution>):
 #   0.25x   : 2 mm mesh, second-order upwind convection (the coarsest level, a quarter of the base cells)
