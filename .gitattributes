@@ -1,0 +1,2 @@
+# shell scripts, OpenFOAM dictionaries and .geo files must keep LF line endings to run on Linux
+* text=auto eol=lf

@@ -1,0 +1,98 @@
+# Configuration of the MS-COFD (Multi-Scale Central Object Flow Dataset) pipeline:
+# geometry -> mesh -> OpenFOAM case -> extracted arrays.
+# All lengths are in mm (the .geo files multiply them with unit = 0.001 to get meters).
+
+seed: 2024  # every case gets its own random generator derived from this seed, see geometries/sampling.py
+
+# channel domain, the obstacle is placed around its center
+# (the same numbers are hard-coded in geometries/geo-base-files/geo_base_2_*.geo, change both together)
+domain:
+  length: 260
+  height: 120
+
+# characteristic mesh length (gmsh "size") for every resolution, in meters
+resolutions:
+  base: 0.001
+  4x: 0.0005
+  16x: 0.00025
+
+# which resolutions the geometry and mesh stages write by default
+default_resolutions: [base, 16x]
+
+geometries: [rectangle, diamond, left_triangle, right_triangle, circle]
+
+# number of cases for every geometry, the released dataset has 1000 normal + 500 smaller + 500 larger
+cases_per_geometry:
+  normal: 200
+  smaller: 100
+  larger: 100
+
+# Obstacle sizes.
+#
+# "legacy" is the sampling of the original 1000 cases (create_obstacle_data_linux/):
+#   width and height are integers drawn uniformly from [min, max] (both ends included).
+#
+# "jitter" is the sampling of the smaller / larger cases (meshForge/):
+#   width  = nominal width  * (1 + uniform(-width_jitter,  width_jitter))
+#   height = nominal height * (1 + uniform(-height_jitter, height_jitter))
+#   smaller and larger nominal sizes are 35% below / above the middle of the legacy ranges.
+#
+# variance controls how far every corner can move away from its ideal position (see create_variance).
+sizes:
+  normal:
+    scheme: legacy
+    rectangle:      {width: [45, 55], height: [20, 30], variance: 0.15}
+    diamond:        {width: [45, 55], height: [20, 30], variance: 0.15}
+    left_triangle:  {width: [40, 50], height: [40, 50], variance: 0.15}
+    right_triangle: {width: [40, 50], height: [40, 50], variance: 0.15}
+    circle:         {width: [20, 30], height: [20, 30], variance: 0.30}
+
+  smaller:
+    scheme: jitter
+    width_jitter: 0.10
+    height_jitter: 0.20
+    rectangle:      {width: 32.5,   height: 16.25,  variance: 0.15}
+    diamond:        {width: 32.5,   height: 16.5,   variance: 0.15}  # 16.5 (not 16.25) generated the released cases
+    left_triangle:  {width: 27.625, height: 27.625, variance: 0.15}
+    right_triangle: {width: 27.625, height: 27.625, variance: 0.15}
+    circle:         {width: 16.25,  height: 16.25,  variance: 0.30}
+
+  larger:
+    scheme: jitter
+    width_jitter: 0.10
+    height_jitter: 0.20
+    rectangle:      {width: 67.5,   height: 33.75,  variance: 0.15}
+    diamond:        {width: 67.5,   height: 33.75,  variance: 0.15}
+    left_triangle:  {width: 57.375, height: 57.375, variance: 0.15}
+    right_triangle: {width: 57.375, height: 57.375, variance: 0.15}
+    circle:         {width: 33.75,  height: 33.75,  variance: 0.30}
+
+# gmsh settings, the released meshes were created with gmsh 4.9.5
+meshing:
+  gmsh: gmsh     # gmsh executable, or set the GMSH_BIN environment variable
+  threads: 3     # gmsh -n, threads per mesh
+  workers: 1     # meshes created at the same time
+  timeout: 3600  # seconds before a single mesh is given up
+
+# OpenFOAM case settings (openfoam/case-templates/<templates>/<resolution>):
+#   released  : the settings of the released dataset, whose 16x runs stopped long before steady state
+#   converged : the same discretisation, run to initial residuals of 1e-6 (use with foam-setup --init-from base
+#               for 16x and openfoam/scripts/submit_pairs.sh)
+openfoam:
+  templates: released
+
+# grid size of the arrays extracted with ParaView (one point per mm for base, two for 4x, four for 16x)
+extraction:
+  base: [260, 120]
+  4x: [520, 240]
+  16x: [1040, 480]
+
+# folders, relative to this file
+paths:
+  geo_files: outputs/geo-files
+  mesh_files: outputs/mesh-files
+  cases: outputs/cases
+  extracts: outputs/extracts
+  arrays: outputs/arrays
+  dataset: outputs/ms-cofd.h5
+  manifest: outputs/manifest.csv
