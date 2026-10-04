@@ -170,10 +170,22 @@ def collect_case(work):
     lines = os.path.join(work, "postProcessing", "lines", "*")
     integrate = getattr(np, 'trapezoid', None) or np.trapz  # numpy 2 renamed trapz
 
+    def read_line(name):
+        """
+        y, u_x and p of a sampled line: one file with the columns y p U_x U_y U_z when U and p are sampled together,
+        <name>_U.xy (y U_x U_y U_z) and <name>_p.xy (y p) when they are written separately
+        """
+        combined = glob.glob(os.path.join(lines, f"{name}_p_U.xy"))
+        if combined:
+            line = np.array(read_raw(combined[0]))
+            return line[:, 0], line[:, 2], line[:, 1]
+        line = np.array(read_raw(glob.glob(os.path.join(lines, f"{name}_U.xy"))[0]))
+        pressure = glob.glob(os.path.join(lines, f"{name}_p.xy"))
+        return line[:, 0], line[:, 1], np.array(read_raw(pressure[0]))[:, 1] if pressure else None
+
     def flux_to_obstacle(name):
         """flow rate from the wall to the obstacle: the first contiguous part of the sampled line"""
-        line = np.array(read_raw(glob.glob(os.path.join(lines, f"{name}_U.xy"))[0]))
-        y, u = line[:, 0], line[:, 1]
+        y, u, _ = read_line(name)
         steps = np.abs(np.diff(y))
         breaks = np.nonzero(steps > 1.5 * np.median(steps))[0]
         end = breaks[0] + 1 if len(breaks) else len(y)
@@ -181,14 +193,13 @@ def collect_case(work):
 
     below, above = flux_to_obstacle("centroidBelow"), flux_to_obstacle("centroidAbove")
     row['flow_split_upper'] = float(above / (above + below))
-    wake = np.array(read_raw(glob.glob(os.path.join(lines, "wakeLine_U.xy"))[0]))
-    row['wake_min_u_x'] = float(wake[:, 1].min())
+    row['wake_min_u_x'] = float(read_line("wakeLine")[1].min())
 
     # pressure drop between cross-sections 10 mm behind the inlet and 10 mm before the outlet (the area average on
     # the inlet patch includes the singular inlet corners, the cross-sections do not)
     def section_pressure(name):
-        line = np.array(read_raw(glob.glob(os.path.join(lines, f"{name}_p.xy"))[0]))
-        return integrate(line[:, 1], line[:, 0]) / (line[-1, 0] - line[0, 0])
+        y, _, pressure = read_line(name)
+        return integrate(pressure, y) / (y[-1] - y[0])
 
     row['dp_sections'] = float(section_pressure("inletSection") - section_pressure("outletSection"))
     return row
