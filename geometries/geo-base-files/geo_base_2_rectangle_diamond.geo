@@ -16,9 +16,9 @@ Curve Loop(1) = {1, 2, 3, 4};
 
 //outer geometry
 Point(5) = {0, 0, 0, size};
-Point(6) = {260 * unit, 0, 0, size};
-Point(7) = {260 * unit, 120 * unit, 0, size};
-Point(8) = {0, 120 * unit, 0, size};
+Point(6) = {domain_length, 0, 0, size};
+Point(7) = {domain_length, domain_height, 0, size};
+Point(8) = {0, domain_height, 0, size};
 
 Line(5) = {5, 6};
 Line(6) = {6, 7};

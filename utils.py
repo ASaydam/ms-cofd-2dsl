@@ -1,8 +1,8 @@
 """
 Helper functions shared by the pipeline stages: folders, config and the case manifest.
 
-The manifest is a CSV file with one row per case. It records the obstacle coordinates (same names as in the
-.geo files, in mm) and a few derived values that are useful for describing the dataset.
+The manifest is a CSV file with one row per case. It records the sampled parameters, the obstacle coordinates (same
+names as in the .geo files, in mm) and a few derived values that are useful for describing the dataset.
 """
 
 import csv
@@ -14,11 +14,12 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent
 
 MANIFEST_FIELDS = [
-    'case_name', 'source', 'source_file', 'size', 'geometry', 'index', 'seed',
-    'sampled_width', 'sampled_height',
+    'case_name', 'size', 'geometry', 'index', 'seed',
+    'sampled_width', 'sampled_height', 'rotation', 'shift_x', 'shift_y', 'attempts',
     'x1', 'x2', 'x3', 'x4', 'y1', 'y2', 'y3', 'y4',
     'z11', 'z21', 'z31', 'z41', 'z12', 'z22', 'z32', 'z42',
     'bbox_width', 'bbox_height', 'centroid_x', 'centroid_y', 'area', 'blockage_ratio',
+    'gap_bottom', 'gap_top', 'gap_inlet', 'gap_outlet',
 ]
 
 
@@ -27,24 +28,31 @@ def create_folder(folder_path):
         os.makedirs(folder_path)
 
 
-def load_config(config_path=REPO_ROOT / 'config.yaml'):
+def data_root():
     """
-    reads config.yaml, the folders under "paths" are turned into absolute paths relative to the config file
+    folder of all generated data: the MSCOFD_DATA_ROOT environment variable, or outputs/ in the repository
     """
-    # imported here, so the tools that do not read config.yaml (e.g. extraction/check_runs.py) run without pyyaml
+    return Path(os.environ.get('MSCOFD_DATA_ROOT', REPO_ROOT / 'outputs')).resolve()
+
+
+def load_config(config_path=REPO_ROOT / 'config' / 'dataset.yaml'):
+    """
+    reads the dataset configuration, the folders under "paths" are turned into absolute paths in the data root
+    """
+    # imported here, so the tools that do not read the configuration (e.g. extraction/check_runs.py) run without pyyaml
     import yaml
 
-    config_path = Path(config_path).resolve()
-    with open(config_path, 'r') as file:
+    with open(Path(config_path).resolve(), 'r') as file:
         config = yaml.safe_load(file)
 
-    config['paths'] = {key: config_path.parent / value for key, value in config['paths'].items()}
+    root = data_root()
+    config['paths'] = {key: root / value for key, value in config['paths'].items()}
     return config
 
 
 def describe_obstacle(coordinates, arcs, domain):
     """
-    calculates the bounding box, centroid, area and blockage ratio of an obstacle
+    calculates the bounding box, centroid, area, blockage ratio and the gaps to the domain boundaries of an obstacle
     (circles are described by the polygon through their corners and arc mid-points)
     """
     # imported here, geometries imports this module as well
@@ -66,12 +74,17 @@ def describe_obstacle(coordinates, arcs, domain):
         'centroid_y': round(float(centroid_y), 4),
         'area': round(float(area), 4),
         'blockage_ratio': round(float(bbox_height / domain['height']), 4),
+        # distances between the obstacle and the channel walls, the inlet and the outlet
+        'gap_bottom': round(float(y.min()), 4),
+        'gap_top': round(float(domain['height'] - y.max()), 4),
+        'gap_inlet': round(float(x.min()), 4),
+        'gap_outlet': round(float(domain['length'] - x.max()), 4),
     }
 
 
 def manifest_row(case_name, size, geometry, index, coordinates, arcs, domain, **extra):
     """
-    creates a manifest row, extra keyword arguments (source, seed, sampled_width, ...) are added as they are
+    creates a manifest row, extra keyword arguments (seed, sampled_width, rotation, ...) are added as they are
     """
     row = {'case_name': case_name, 'size': size, 'geometry': geometry, 'index': index}
 

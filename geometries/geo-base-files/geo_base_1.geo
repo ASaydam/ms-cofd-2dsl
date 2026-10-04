@@ -7,3 +7,5 @@ Mesh.Algorithm = 8; // Delaunay for quads
 
 unit = 0.001; //mm
 size = 0.001; // base: 0.001 - 4x: 0.0005 - 16x: 0.00025
+domain_length = 360 * unit;
+domain_height = 120 * unit;

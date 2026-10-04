@@ -2,17 +2,14 @@
 This module creates one OpenFOAM case folder for every .msh file.
 
 A case is a copy of openfoam/case-templates/<template set>/<resolution> (0/, constant/, system/) with the mesh
-copied in as mesh.msh. The mesh is converted and the solver is run by openfoam/scripts/run_case.sh, on a cluster
-with submit_all.sh / submit_pairs.sh or on a workstation with run_all_local.sh.
+copied in as mesh.msh. The mesh is converted and the solver is run by openfoam/scripts/run_case.sh.
 
-Template sets:
+Template sets (the runs of every case are listed in config/dataset.yaml):
 
-    released   the settings of the released dataset (mscofd2000_v4.h5); its runs stop at initial residuals
-               U 1e-3 / p 1e-2, which stops the 16x cases long before the flow is steady
-    converged  the same discretisation, run to initial residuals of 1e-6 with faster solver settings; it also has
-               a 4x template (0.5 mm, the middle level of a base / 4x / 16x mesh convergence study)
-    second-order  the converged settings with second-order upwind convection (linearUpwind) instead of first-order
-               upwind, whose numerical diffusion dominates the discretization error of the converged set
+    first-order   base only: first-order upwind convection, the low-fidelity solver of MS-COFD (v4)
+    second-order  base, 4x and 16x: second-order upwind convection (linearUpwind)
+
+Both sets run to initial residuals of 1e-6 (residualControl), endTime is only a cap.
 
 A case can start from the solution of another case with the same geometry (e.g. 16x from base): its init_from
 file holds the path of that case, and run_case.sh maps its latest time step onto the new mesh (mapFields).
@@ -26,14 +23,14 @@ from utils import create_folder
 TEMPLATE_FOLDER = Path(__file__).resolve().parent / 'case-templates'
 
 
-def create_foam(mesh_directory, cases_directory, resolution, template_set='released', init_from=None,
+def create_foam(mesh_directory, cases_directory, resolution, template_set='second-order', init_from=None,
                 overwrite=False):
     """
     creates the OpenFOAM cases of one resolution
     :param mesh_directory: folder of the .msh files
     :param cases_directory: output folder, a sub-folder is created for every case
-    :param resolution: base, 4x (converged only) or 16x, selects the case template
-    :param template_set: released, converged or second-order (see above)
+    :param resolution: base, 4x or 16x, selects the case template
+    :param template_set: first-order (base only) or second-order (see above)
     :param init_from: folder of already set up cases with the same names (e.g. the base cases), every case starts
      from the latest time step of its namesake there; None starts from the uniform fields in 0/
     :param overwrite: delete and create again the cases that already exist

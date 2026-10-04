@@ -11,22 +11,21 @@ def make_meshes(folder, names):
 
 def test_template_sets(tmp_path):
     make_meshes(tmp_path / "mesh", ["case_a"])
-    create_foam(tmp_path / "mesh", tmp_path / "released", "16x")
-    create_foam(tmp_path / "mesh", tmp_path / "converged", "16x", template_set="converged")
+    create_foam(tmp_path / "mesh", tmp_path / "first-order", "base", template_set="first-order")
+    create_foam(tmp_path / "mesh", tmp_path / "second-order", "base")
 
-    released = (tmp_path / "released" / "case_a" / "system" / "fvSolution").read_text()
-    converged = (tmp_path / "converged" / "case_a" / "system" / "fvSolution").read_text()
-    assert "PCG" in released and "GAMG" in converged
-    assert (tmp_path / "converged" / "case_a" / "mesh.msh").read_text() == "mesh"
-    assert not (tmp_path / "converged" / "case_a" / "init_from").exists()
+    first = (tmp_path / "first-order" / "case_a" / "system" / "fvSchemes").read_text()
+    second = (tmp_path / "second-order" / "case_a" / "system" / "fvSchemes").read_text()
+    assert "div(phi,U)      bounded Gauss upwind;" in first and "linearUpwind grad(U)" in second
+    assert (tmp_path / "second-order" / "case_a" / "mesh.msh").read_text() == "mesh"
+    assert not (tmp_path / "second-order" / "case_a" / "init_from").exists()
 
 
 def test_init_from_points_to_the_case_with_the_same_name(tmp_path):
     make_meshes(tmp_path / "mesh-base", ["case_a", "case_b"])
     make_meshes(tmp_path / "mesh-16x", ["case_a", "case_b"])
-    create_foam(tmp_path / "mesh-base", tmp_path / "cases" / "base", "base", template_set="converged")
-    create_foam(tmp_path / "mesh-16x", tmp_path / "cases" / "16x", "16x", template_set="converged",
-                init_from=tmp_path / "cases" / "base")
+    create_foam(tmp_path / "mesh-base", tmp_path / "cases" / "base", "base")
+    create_foam(tmp_path / "mesh-16x", tmp_path / "cases" / "16x", "16x", init_from=tmp_path / "cases" / "base")
 
     for name in ("case_a", "case_b"):
         source = (tmp_path / "cases" / "16x" / name / "init_from").read_text().strip()

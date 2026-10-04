@@ -1,16 +1,10 @@
-import re
-
-import pytest
-
-from conftest import RELEASED_EXTENDED_GEO
 from geometries.write_geo import create_geo, read_geo_coordinates
 from utils import read_csv, update_manifest
 
-RE_COORDINATE_OR_SIZE = re.compile(r'^([xyz]\d+ = |size = )')
-
 
 def generate(config, resolutions=('base', '16x'), end=2):
-    return create_geo(config, list(config['sizes']), config['geometries'], list(resolutions), start=1, end=end)
+    return create_geo(config, list(config['cases_per_geometry']), config['geometries'], list(resolutions),
+                      start=1, end=end)
 
 
 def test_resolutions_differ_only_in_the_size_line(config):
@@ -54,16 +48,9 @@ def test_manifest_update_replaces_cases(config):
     assert [row['case_name'] for row in read_csv(config['paths']['manifest'])] == [row['case_name'] for row in rows]
 
 
-@pytest.mark.skipif(not RELEASED_EXTENDED_GEO.exists(), reason="released smaller / larger .geo files not found")
-@pytest.mark.parametrize("geometry", ["rectangle", "diamond", "left_triangle", "right_triangle", "circle"])
-def test_geo_template_matches_the_released_files(config, geometry):
-    """apart from coordinates and size, a generated file is the same as a released one"""
-    generate(config, resolutions=('base',), end=1)
-
-    def template_lines(path):
-        lines = path.read_text().replace('\r', '').splitlines()
-        return [line for line in lines if not RE_COORDINATE_OR_SIZE.match(line)]
-
-    generated = template_lines(config['paths']['geo_files'] / 'base' / f"larger_{geometry}_1.geo")
-    released = template_lines(RELEASED_EXTENDED_GEO / f"larger_{geometry}_1.geo")
-    assert generated == released
+def test_domain_size_is_written(config):
+    rows = generate(config, resolutions=('base',), end=1)
+    text = (config['paths']['geo_files'] / 'base' / f"{rows[0]['case_name']}.geo").read_text()
+    assert f"domain_length = {config['domain']['length']} * unit;" in text
+    assert f"domain_height = {config['domain']['height']} * unit;" in text
+    assert rows[0]['case_name'].endswith('_0001')

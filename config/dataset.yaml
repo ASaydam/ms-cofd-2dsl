@@ -1,14 +1,29 @@
-# Configuration of the MS-COFD (Multi-Scale Central Object Flow Dataset) pipeline:
-# geometry -> mesh -> OpenFOAM case -> extracted arrays.
+# Configuration of the MS-COFD-2DSL (Multi-Scale Central Object Flow Dataset - 2D Steady Laminar) pipeline:
+# geometry -> mesh -> OpenFOAM case -> arrays and attributes.
 # All lengths are in mm (the .geo files multiply them with unit = 0.001 to get meters).
+# The reasons behind the values are in docs/decisions.md.
 
-seed: 2024  # every case gets its own random generator derived from this seed, see geometries/sampling.py
+name: MS-COFD-2DSL
+version: 1.0.0
 
-# channel domain, the obstacle is placed around its center
-# (the same numbers are hard-coded in geometries/geo-base-files/geo_base_2_*.geo, change both together)
+seed: 2026  # every case gets its own random generator derived from this seed, see geometries/sampling.py
+
+# channel domain, the inlet is at x = 0 and the outlet at x = length
 domain:
-  length: 260
+  length: 360
   height: 120
+
+# Placement of the obstacles. Every obstacle is drawn around the nominal center, rotated about its centroid and
+# moved by a random shift. An obstacle that does not keep the minimum gaps is drawn again (see check_geometry).
+placement:
+  center: [130, 60]     # nominal center, the same distance from the inlet as in MS-COFD (v4)
+  shift_x: [-30, 10]    # uniform, mm (more upstream than downstream, large obstacles need room for their wake)
+  shift_y: [-15, 15]    # uniform, mm
+  rotation: [-45, 45]   # uniform, degrees, counter-clockwise
+  min_wall_gap: 5       # mm between the obstacle and the top / bottom walls
+  min_inlet_gap: 60     # mm between the inlet and the obstacle
+  min_outlet_gap: 150   # mm between the obstacle and the outlet
+  max_attempts: 1000    # drawing stops with an error after this many invalid obstacles
 
 # characteristic mesh length (gmsh "size") for every resolution, in meters
 resolutions:
@@ -17,82 +32,67 @@ resolutions:
   16x: 0.00025
 
 # which resolutions the geometry and mesh stages write by default
-default_resolutions: [base, 16x]
+default_resolutions: [base, 4x, 16x]
 
 geometries: [rectangle, diamond, left_triangle, right_triangle, circle]
 
-# number of cases for every geometry, the released dataset has 1000 normal + 500 smaller + 500 larger
+# number of cases for every size and geometry: 3 sizes x 5 geometries x 300 = 4500 cases
 cases_per_geometry:
-  normal: 200
-  smaller: 100
-  larger: 100
+  normal: 300
+  smaller: 300
+  larger: 300
 
-# Obstacle sizes.
-#
-# "legacy" is the sampling of the original 1000 cases (create_obstacle_data_linux/):
-#   width and height are integers drawn uniformly from [min, max] (both ends included).
-#
-# "jitter" is the sampling of the smaller / larger cases (meshForge/):
-#   width  = nominal width  * (1 + uniform(-width_jitter,  width_jitter))
-#   height = nominal height * (1 + uniform(-height_jitter, height_jitter))
-#   smaller and larger nominal sizes are 35% below / above the middle of the legacy ranges.
-#
+# Obstacle sizes, one sampling scheme for all sizes:
+#   width  = nominal width  * scale * (1 + uniform(-width_jitter,  width_jitter))
+#   height = nominal height * scale * (1 + uniform(-height_jitter, height_jitter))
+# The nominal sizes are the middle of the ranges of the original normal size cases; the triangles use 42.5 mm,
+# the size from which the smaller / larger cases of MS-COFD (v4) were scaled (27.625 = 0.65 x 42.5).
 # variance controls how far every corner can move away from its ideal position (see create_variance).
 sizes:
-  normal:
-    scheme: legacy
-    rectangle:      {width: [45, 55], height: [20, 30], variance: 0.15}
-    diamond:        {width: [45, 55], height: [20, 30], variance: 0.15}
-    left_triangle:  {width: [40, 50], height: [40, 50], variance: 0.15}
-    right_triangle: {width: [40, 50], height: [40, 50], variance: 0.15}
-    circle:         {width: [20, 30], height: [20, 30], variance: 0.30}
+  width_jitter: 0.10
+  height_jitter: 0.20
+  scale:
+    normal: 1.0
+    smaller: 0.65
+    larger: 1.35
+  nominal:
+    rectangle:      {width: 50,   height: 25,   variance: 0.15}
+    diamond:        {width: 50,   height: 25,   variance: 0.15}
+    left_triangle:  {width: 42.5, height: 42.5, variance: 0.15}
+    right_triangle: {width: 42.5, height: 42.5, variance: 0.15}
+    circle:         {width: 25,   height: 25,   variance: 0.30}
 
-  smaller:
-    scheme: jitter
-    width_jitter: 0.10
-    height_jitter: 0.20
-    rectangle:      {width: 32.5,   height: 16.25,  variance: 0.15}
-    diamond:        {width: 32.5,   height: 16.5,   variance: 0.15}  # 16.5 (not 16.25) generated the released cases
-    left_triangle:  {width: 27.625, height: 27.625, variance: 0.15}
-    right_triangle: {width: 27.625, height: 27.625, variance: 0.15}
-    circle:         {width: 16.25,  height: 16.25,  variance: 0.30}
-
-  larger:
-    scheme: jitter
-    width_jitter: 0.10
-    height_jitter: 0.20
-    rectangle:      {width: 67.5,   height: 33.75,  variance: 0.15}
-    diamond:        {width: 67.5,   height: 33.75,  variance: 0.15}
-    left_triangle:  {width: 57.375, height: 57.375, variance: 0.15}
-    right_triangle: {width: 57.375, height: 57.375, variance: 0.15}
-    circle:         {width: 33.75,  height: 33.75,  variance: 0.30}
-
-# gmsh settings, the released meshes were created with gmsh 4.9.5
+# gmsh settings
 meshing:
   gmsh: gmsh     # gmsh executable, or set the GMSH_BIN environment variable
-  threads: 3     # gmsh -n, threads per mesh
+  threads: 1     # gmsh -nt, threads per mesh (one CPU per job on the cluster, and deterministic meshes)
   workers: 1     # meshes created at the same time
   timeout: 3600  # seconds before a single mesh is given up
 
-# OpenFOAM case settings (openfoam/case-templates/<templates>/<resolution>):
-#   released  : the settings of the released dataset, whose 16x runs stopped long before steady state
-#   converged : the same discretisation, run to initial residuals of 1e-6 (use with foam-setup --init-from base
-#               for 16x and openfoam/scripts/submit_pairs.sh)
-openfoam:
-  templates: released
+# The OpenFOAM runs of every case (openfoam/case-templates/<templates>/<resolution>):
+#   base_fo : 1 mm mesh, first-order upwind convection (the low-fidelity solver of MS-COFD v4)
+#   base_lu : 1 mm mesh, second-order upwind convection (linearUpwind)
+#   4x, 16x : 0.5 mm and 0.25 mm meshes, second order, started from the base_lu solution (mapFields)
+runs:
+  base_fo: {resolution: base, templates: first-order}
+  base_lu: {resolution: base, templates: second-order}
+  4x:      {resolution: 4x,   templates: second-order, init_from: base_lu}
+  16x:     {resolution: 16x,  templates: second-order, init_from: base_lu}
 
-# grid size of the arrays extracted with ParaView (one point per mm for base, two for 4x, four for 16x)
+# grid size of the arrays (one point per mm for base, two for 4x, four for 16x)
 extraction:
-  base: [260, 120]
-  4x: [520, 240]
-  16x: [1040, 480]
+  base: [360, 120]
+  4x: [720, 240]
+  16x: [1440, 480]
 
-# folders, relative to this file
+# folders, relative to the data root: the MSCOFD_DATA_ROOT environment variable, or outputs/ in the repository
+# (on KUACC: /kuacc/users/asaydam21/hpc_run/ms-cofd-2dsl, see hpc/env.sh)
 paths:
-  geo_files: outputs/geo-files
-  mesh_files: outputs/mesh-files
-  cases: outputs/cases
-  extracts: outputs/extracts
-  arrays: outputs/arrays
-  dataset: outputs/ms-cofd.h5
-  manifest: outputs/manifest.csv
+  geo_files: geometry/geo-files
+  manifest: geometry/manifest.csv
+  mesh_files: meshes
+  cases: work
+  results: results
+  archives: archives
+  logs: logs
+  dataset: dataset

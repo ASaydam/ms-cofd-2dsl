@@ -3,7 +3,8 @@ This module writes the obstacle coordinates into .geo files for gmsh (and reads 
 
 A .geo file is made of three parts:
 
-1. geo_base_1.geo            : meshing algorithm, unit and the characteristic mesh length (size) of the resolution
+1. geo_base_1.geo            : meshing algorithm, unit, the characteristic mesh length (size) of the resolution
+                               and the domain size
 2. obstacle coordinates      : x1, y1, ... and z11, z12, ... (arc mid-points, circles only), in mm
 3. geo_base_2_<geometry>.geo : obstacle and domain outlines, extrusion and boundary names
 
@@ -21,6 +22,7 @@ from .sampling import case_rng, get_coordinates
 GEO_BASE_FOLDER = Path(__file__).resolve().parent / 'geo-base-files'
 
 RE_SIZE = re.compile(r'^size = .*$', re.MULTILINE)
+RE_DOMAIN = {name: re.compile(rf'^{name} = .*$', re.MULTILINE) for name in ('domain_length', 'domain_height')}
 RE_VARIABLE = re.compile(r'^([xyz]\d+)\s*=\s*([-\d.eE+]+)\s*\*\s*unit;', re.MULTILINE)
 
 
@@ -43,8 +45,8 @@ def write_file(file, geometry, coordinates, arcs=None):
     :param coordinates: corner points, one [x, y] row per corner
     :param arcs: arc mid-points of a circle, one [x, y] row per side (bottom, right, top, left)
     """
-    xs = [float(x) for x in coordinates[:, 0]]
-    ys = [float(y) for y in coordinates[:, 1]]
+    xs = [round(float(x), 2) for x in coordinates[:, 0]]
+    ys = [round(float(y), 2) for y in coordinates[:, 1]]
 
     # x1, x2, ... first, then y1, y2, ...
     for i, x in enumerate(xs):
@@ -55,12 +57,12 @@ def write_file(file, geometry, coordinates, arcs=None):
     # circle arc mid-points : z11 z21 z31 z41 are the x values, z12 z22 z32 z42 are the y values
     if geometry == "circle":
         for i, x in enumerate(arcs[:, 0]):
-            file.write(f"z{i + 1}1 = {float(x)} * unit;\n")
+            file.write(f"z{i + 1}1 = {round(float(x), 2)} * unit;\n")
         for i, y in enumerate(arcs[:, 1]):
-            file.write(f"z{i + 1}2 = {float(y)} * unit;\n")
+            file.write(f"z{i + 1}2 = {round(float(y), 2)} * unit;\n")
 
 
-def write_geo(file_path, geometry, coordinates, arcs, mesh_size):
+def write_geo(file_path, geometry, coordinates, arcs, mesh_size, domain):
     """
     creates a single .geo file
     :param file_path: output file
@@ -68,10 +70,13 @@ def write_geo(file_path, geometry, coordinates, arcs, mesh_size):
     :param coordinates: corner points of the obstacle
     :param arcs: arc mid-points of a circle, None for other geometries
     :param mesh_size: characteristic mesh length (gmsh size) of the resolution, in meters
+    :param domain: domain block of config/dataset.yaml (length and height in mm)
     """
     # geo_base_1 file contains meshing algorithm info, only its size line changes between resolutions
     header = file_selector('geo_base_file').read_text()
     header = RE_SIZE.sub(f"size = {mesh_size}; // base: 0.001 - 4x: 0.0005 - 16x: 0.00025", header, count=1)
+    header = RE_DOMAIN['domain_length'].sub(f"domain_length = {domain['length']} * unit;", header, count=1)
+    header = RE_DOMAIN['domain_height'].sub(f"domain_height = {domain['height']} * unit;", header, count=1)
 
     # newline='\n' keeps the files identical on Windows and Linux
     with open(file_path, 'w', newline='\n') as file:
@@ -92,10 +97,17 @@ def read_geo_coordinates(file_path):
     return variables, float(size.group(1)) if size else None
 
 
+def case_name_of(size, geometry, index):
+    """
+    name of a case, e.g. larger_right_triangle_0042 (four digits, so the names sort in case order)
+    """
+    return f"{size}_{geometry}_{index:04d}"
+
+
 def create_geo(config, sizes, geometries, resolutions, start=1, end=None):
     """
     creates the .geo files of the selected cases, every case is written once for every resolution
-    :param config: content of config.yaml (see utils.load_config)
+    :param config: content of config/dataset.yaml (see utils.load_config)
     :param sizes: list of sizes (normal, smaller, larger)
     :param geometries: list of geometries
     :param resolutions: list of resolutions (base, 4x, 16x)
@@ -112,22 +124,25 @@ def create_geo(config, sizes, geometries, resolutions, start=1, end=None):
         last_case = end if end is not None else config['cases_per_geometry'][size]
 
         for i in range(start, last_case + 1):
-            case_name = f"{size}_{geometry}_{i}"
+            case_name = case_name_of(size, geometry, i)
 
             # every case has its own random generator, see sampling.case_rng
             rng = case_rng(config['seed'], size, geometry, i)
-            obstacle = get_coordinates(geometry, config['sizes'][size], config['domain'], rng)
+            obstacle = get_coordinates(geometry, size, config, rng)
 
             for resolution in resolutions:
                 geo_file = config['paths']['geo_files'] / resolution / f"{case_name}.geo"
                 write_geo(geo_file, geometry, obstacle['coordinates'], obstacle['arcs'],
-                          config['resolutions'][resolution])
+                          config['resolutions'][resolution], config['domain'])
 
             generated_rows.append(manifest_row(case_name, size, geometry, i, obstacle['coordinates'],
-                                               obstacle['arcs'], config['domain'],
-                                               source='generated', seed=config['seed'],
-                                               sampled_width=obstacle['width'],
-                                               sampled_height=obstacle['height']))
+                                               obstacle['arcs'], config['domain'], seed=config['seed'],
+                                               sampled_width=round(obstacle['width'], 4),
+                                               sampled_height=round(obstacle['height'], 4),
+                                               rotation=round(obstacle['rotation'], 4),
+                                               shift_x=round(obstacle['shift_x'], 4),
+                                               shift_y=round(obstacle['shift_y'], 4),
+                                               attempts=obstacle['attempts']))
 
         print(f"Created {last_case - start + 1} {size} {geometry} cases")
 

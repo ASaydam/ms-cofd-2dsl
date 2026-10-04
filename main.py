@@ -1,5 +1,6 @@
 """
-Command line entry of the MS-COFD (Multi-Scale Central Object Flow Dataset) pipeline, every stage reads the
+Command line entry of the MS-COFD-2DSL (Multi-Scale Central Object Flow Dataset - 2D Steady Laminar) pipeline,
+every stage reads the
 output of the previous one from disk:
 
     python main.py geometry       # .geo files of all cases + outputs/manifest.csv
@@ -15,7 +16,7 @@ output of the previous one from disk:
     python main.py build-arrays 16x
     python main.py build-dataset  # MS-COFD .h5 file in the layout of mscofd2000_v4.h5
 
-Settings are in config.yaml, every stage has options to work on a part of the dataset, e.g.
+Settings are in config/dataset.yaml, every stage has options to work on a part of the dataset, e.g.
 
     python main.py geometry --sizes smaller --geometries circle --start 1 --end 10
     python main.py mesh --resolutions base --workers 4
@@ -49,7 +50,7 @@ def run_foam_setup(config, args):
         if args.init_from and args.init_from != resolution:
             init_from = config['paths']['cases'] / args.init_from
         create_foam(config['paths']['mesh_files'] / resolution, config['paths']['cases'] / resolution, resolution,
-                    template_set=args.templates or config['openfoam']['templates'], init_from=init_from,
+                    template_set=args.templates, init_from=init_from,
                     overwrite=args.overwrite)
 
 
@@ -74,10 +75,10 @@ def run_build_dataset(config, args):
 def main():
     # the config file is read first, the defaults of the other options come from it
     config_option = argparse.ArgumentParser(add_help=False)
-    config_option.add_argument("--config", default=str(REPO_ROOT / "config.yaml"), help="configuration file")
+    config_option.add_argument("--config", default=str(REPO_ROOT / "config" / "dataset.yaml"), help="configuration file")
     config = load_config(config_option.parse_known_args()[0].config)
 
-    parser = argparse.ArgumentParser(description="MS-COFD dataset pipeline, settings are in config.yaml",
+    parser = argparse.ArgumentParser(description="MS-COFD-2DSL dataset pipeline, settings are in config/dataset.yaml",
                                      parents=[config_option])
     stages = parser.add_subparsers(dest="stage", required=True)
 
@@ -88,11 +89,12 @@ def main():
     common.add_argument("--overwrite", action="store_true", help="create again the files that already exist")
 
     geometry = argparse.ArgumentParser(add_help=False)
-    geometry.add_argument("--sizes", nargs="+", default=list(config['sizes']), choices=list(config['sizes']))
+    geometry.add_argument("--sizes", nargs="+", default=list(config['cases_per_geometry']),
+                          choices=list(config['cases_per_geometry']))
     geometry.add_argument("--geometries", nargs="+", default=config['geometries'], choices=config['geometries'])
     geometry.add_argument("--start", type=int, default=1, help="first case number")
     geometry.add_argument("--end", type=int, default=None,
-                          help="last case number (default: cases_per_geometry of config.yaml)")
+                          help="last case number (default: cases_per_geometry of config/dataset.yaml)")
 
     mesh = argparse.ArgumentParser(add_help=False)
     mesh.add_argument("--workers", type=int, default=None, help="meshes created at the same time")
@@ -101,8 +103,8 @@ def main():
     stages.add_parser("geometry", parents=[common, geometry], help="create .geo files and the manifest")
     stages.add_parser("mesh", parents=[common, mesh], help="create .msh files with gmsh")
     foam = argparse.ArgumentParser(add_help=False)
-    foam.add_argument("--templates", default=None, choices=["released", "converged", "second-order"],
-                      help="OpenFOAM settings, see openfoam/create_foam.py (default: openfoam.templates of config.yaml)")
+    foam.add_argument("--templates", default="second-order", choices=["first-order", "second-order"],
+                      help="OpenFOAM settings, see openfoam/create_foam.py")
     foam.add_argument("--init-from", default=None, choices=list(config['resolutions']),
                       help="start the cases from the solution of this resolution's cases (e.g. 16x from base)")
 
@@ -117,7 +119,7 @@ def main():
                         help="float32 keeps every digit of the exported fields (5 significant digits)")
 
     dataset = stages.add_parser("build-dataset", help="build the MS-COFD .h5 file from the base and 16x arrays")
-    dataset.add_argument("--output", default=None, help="default: paths.dataset of config.yaml")
+    dataset.add_argument("--output", default=None, help="default: paths.dataset of config/dataset.yaml")
     dataset.add_argument("--dtype", default="float32", choices=["float32", "float64"])
 
     args = parser.parse_args()

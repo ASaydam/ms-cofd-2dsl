@@ -7,13 +7,14 @@ Supported shapes:
 * Diamond
 * Left triangle (pointy edge on the left, facing the inlet)
 * Right triangle (pointy edge on the right, facing the outlet)
-* Circle (a rectangle whose sides are replaced by splines, see create_legacy_arcs / create_jitter_arcs)
+* Circle (a rectangle whose sides are replaced by splines, see create_arcs)
 
 Every function takes a `rng` argument, a `random.Random` instance, instead of using the global random module.
 This way every case can be regenerated from its seed (see geometries/sampling.py).
 
-The shape functions are the ones used to create the released dataset (create_obstacle_data_linux/ and meshForge/),
-only the random number generator is passed in and the retry logic is written as loops.
+The shape functions are the ones that created MS-COFD (v4), only the random number generator is passed in and the
+retry logic is written as loops. The shapes are drawn upright around the nominal center; rotation and shift are
+applied afterwards in sampling.draw_obstacle.
 """
 
 import numpy as np
@@ -136,34 +137,9 @@ def create_right_triangle(width, height, origin, variance, rng):
             return np_coords
 
 
-def create_legacy_arcs(coordinates, width, height, rng):
+def create_arcs(coordinates, rng):
     """
-    creates the arc mid-points of a circular obstacle the way the original blockMeshDict generator did (normal size).
-    Top and bottom sides bulge 5 mm, left and right sides bulge width / 20, each one randomly inwards or outwards.
-    :param coordinates: corner points of the circle, output of create_rectangle
-    :param width: width parameter of the circle (before the random corner offsets)
-    :param height: height parameter of the circle (before the random corner offsets)
-    :param rng: random.Random instance
-    :return: arc mid-points as a (4, 2) array in the order bottom, right, top, left
-    """
-    random_sign = [[-1, 1][rng.randrange(2)] for i in range(4)]
-
-    lower_left, lower_right, upper_right, upper_left = coordinates
-    lb_width = int(upper_left[0])  # left-block width of the blockMeshDict
-
-    bottom = [lb_width + width / 2, lower_right[1] + random_sign[0] * 5]
-    right = [upper_right[0] + random_sign[1] * (width / 20), upper_right[1] - height / 2]
-    top = [lb_width + width / 2, upper_right[1] + random_sign[2] * 5]
-    # the original code used the sign of the top arc for the left arc as well (random_sign[3] was never used),
-    # kept as it is so the generated circles follow the same distribution as the released ones
-    left = [lower_left[0] + random_sign[2] * (width / 20), upper_left[1] - height / 2]
-
-    return np.array([bottom, right, top, left])
-
-
-def create_jitter_arcs(coordinates, rng):
-    """
-    creates the arc mid-points of a circular obstacle the way meshForge did (smaller and larger sizes).
+    creates the arc mid-points of a circular obstacle (as for the smaller and larger cases of MS-COFD v4).
     Every mid-point is the middle of its side plus a random offset, rounded to 0.1 mm.
     :param coordinates: corner points of the circle, output of create_rectangle
     :param rng: random.Random instance
