@@ -8,10 +8,12 @@
 #   config/      rclone.conf, remote (rclone target of the archives)
 #   geometry/  state/  work/  seeds/  results/  archives/  logs/  dataset/
 
+# real paths (hpc_run in the home folder is a link to /scratch; only /scratch is bound into the container)
 MSCOFD_HPC_RUN=$(readlink -f "${MSCOFD_HPC_RUN:-/kuacc/users/$USER/hpc_run}")
-export MSCOFD_HOME=${MSCOFD_HOME:-$MSCOFD_HPC_RUN/ms-cofd-2dsl}
-export MSCOFD_DATA_ROOT=${MSCOFD_DATA_ROOT:-$MSCOFD_HOME}
-export MSCOFD_REPO=${MSCOFD_REPO:-$MSCOFD_HOME/repo}
+MSCOFD_HOME=$(readlink -f "${MSCOFD_HOME:-$MSCOFD_HPC_RUN/ms-cofd-2dsl}")
+MSCOFD_DATA_ROOT=$(readlink -m "${MSCOFD_DATA_ROOT:-$MSCOFD_HOME}")
+MSCOFD_REPO=$(readlink -f "${MSCOFD_REPO:-$MSCOFD_HOME/repo}")
+export MSCOFD_HPC_RUN MSCOFD_HOME MSCOFD_DATA_ROOT MSCOFD_REPO
 export MSCOFD_BIND=$MSCOFD_HPC_RUN
 
 # empty when not set up yet (the scripts that source this file may use "set -e")
