@@ -204,6 +204,7 @@ class Task:
             'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
             'code_revision': (REPO_ROOT / 'REVISION').read_text().strip() if (REPO_ROOT / 'REVISION').exists() else '',
             'container_image': os.environ.get('MSCOFD_IMAGE', ''),
+            'container_digest': os.environ.get('MSCOFD_IMAGE_DIGEST', ''),
             'versions': versions.read_text() if versions.exists() else '',
             'finished': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
         }
