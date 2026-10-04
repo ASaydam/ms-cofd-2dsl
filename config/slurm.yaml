@@ -20,6 +20,7 @@ windows:
 
 # time and memory per run, set from the pilot (an interrupted job is submitted again and continues the run)
 runs:
+  0.25x:   {time: "01:00:00", mem: 2G}
   base_fo: {time: "01:00:00", mem: 2G}
   base_lu: {time: "01:00:00", mem: 2G}
   4x:      {time: "06:00:00", mem: 3G}

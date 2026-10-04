@@ -14,7 +14,8 @@ it stopped:
    task was interrupted. Peak memory measured with /usr/bin/time -v.
 5. base_lu: the solution is kept in seeds/<case> until the 4x and 16x runs of the case are done
 6. arrays: resampled with VTK to the grid of the resolution -> results/<run>/<case>.npz (float32, 6 channels)
-7. attributes with OpenFOAM's function objects -> results/<run>/<case>_attributes.json
+7. attributes with OpenFOAM's function objects -> results/<run>/<case>_attributes.json, and the pressure and wall
+   shear along the obstacle surface -> results/<run>/<case>_surface.csv
 8. archive: the case folder and the attribute work folder -> archives/<run>/<case>.tar.zst; uploaded with rclone
    (MSCOFD_REMOTE) and deleted after the upload is checked, see hpc/upload.py
 9. provenance -> results/<run>/<case>_provenance.json: status, iterations, residuals, timings, peak memory, host,
@@ -167,6 +168,8 @@ class Task:
         values = collect_case(str(self.attributes_folder))
         with open(self.results / f"{self.case}_attributes.json", 'w') as file:
             json.dump(values, file, indent=1, default=float)
+        # pressure and wall shear along the obstacle surface (x, y in mm, written by collect_case)
+        shutil.copy(self.attributes_folder / 'surface.csv', self.results / f"{self.case}_surface.csv")
         return values
 
     def make_archive(self):

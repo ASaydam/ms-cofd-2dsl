@@ -24,7 +24,7 @@ DEPENDENCIES = {'4x': 'base_lu', '16x': 'base_lu'}
 
 # submission order of the runs that are ready: the long runs first, so the last days are not spent on a tail of
 # 16x runs (base_lu is needed by the others, it is submitted as soon as it is ready anyway)
-RUN_PRIORITY = ['base_lu', '16x', '4x', 'base_fo']
+RUN_PRIORITY = ['base_lu', '16x', '4x', 'base_fo', '0.25x']
 
 
 def data_root():

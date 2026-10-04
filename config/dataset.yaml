@@ -27,12 +27,13 @@ placement:
 
 # characteristic mesh length (gmsh "size") for every resolution, in meters
 resolutions:
+  0.25x: 0.002
   base: 0.001
   4x: 0.0005
   16x: 0.00025
 
 # which resolutions the geometry and mesh stages write by default
-default_resolutions: [base, 4x, 16x]
+default_resolutions: [0.25x, base, 4x, 16x]
 
 geometries: [rectangle, diamond, left_triangle, right_triangle, circle]
 
@@ -68,17 +69,20 @@ meshing:
   timeout: 3600  # seconds before a single mesh is given up
 
 # The OpenFOAM runs of every case (openfoam/case-templates/<templates>/<resolution>):
+#   0.25x   : 2 mm mesh, second-order upwind convection (the coarsest level, a quarter of the base cells)
 #   base_fo : 1 mm mesh, first-order upwind convection (a cheaper, more diffusive low-fidelity solution)
 #   base_lu : 1 mm mesh, second-order upwind convection (linearUpwind)
 #   4x, 16x : 0.5 mm and 0.25 mm meshes, second order, started from the base_lu solution (mapFields)
 runs:
+  0.25x:   {resolution: 0.25x, templates: second-order}
   base_fo: {resolution: base, templates: first-order}
   base_lu: {resolution: base, templates: second-order}
   4x:      {resolution: 4x,   templates: second-order, init_from: base_lu}
   16x:     {resolution: 16x,  templates: second-order, init_from: base_lu}
 
-# grid size of the arrays (one point per mm for base, two for 4x, four for 16x)
+# grid size of the arrays (one point per 2 mm for 0.25x, per mm for base, two per mm for 4x, four for 16x)
 extraction:
+  0.25x: [180, 60]
   base: [360, 120]
   4x: [720, 240]
   16x: [1440, 480]

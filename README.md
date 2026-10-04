@@ -4,7 +4,7 @@
 random obstacle geometries to the arrays, attributes and metadata.
 
 Every case is a two-dimensional laminar channel flow around one obstacle, solved to steady state with OpenFOAM on
-three meshes (1 mm, 0.5 mm and 0.25 mm cells), and on the coarsest mesh with two convection schemes. The dataset
+four meshes (2 mm, 1 mm, 0.5 mm and 0.25 mm cells), and on the 1 mm mesh with two convection schemes. The dataset
 is meant for learning and benchmarking flow prediction across resolutions (coarse-to-fine correction,
 super-resolution, surrogate modelling), with the mesh convergence of every case documented.
 
@@ -19,12 +19,22 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
 | Variety | width ±10 %, height ±20 %, random corner offsets, rotation ±45° about the centroid, shift −30…+10 mm along and ±15 mm across the channel |
 | Flow | incompressible, laminar, steady; ν = 1·10⁻⁴ m²/s; uniform inlet velocity 0.1 m/s |
 | Boundary conditions | inlet: fixed velocity, zero-gradient pressure; outlet: zero-gradient velocity, p = 0; walls and obstacle: no-slip |
-| Runs per case | `base_fo` 1 mm, first-order upwind · `base_lu` 1 mm, second-order upwind · `4x` 0.5 mm · `16x` 0.25 mm (both second order) |
+| Runs per case | `0.25x` 2 mm · `base_fo` 1 mm, first-order upwind · `base_lu` 1 mm · `4x` 0.5 mm · `16x` 0.25 mm (all others second-order upwind) |
 | Convergence | every run until the initial residuals of U and p are below 1·10⁻⁶ (SIMPLEC) |
-| Arrays | 6 channels per run on a regular grid: 360 × 120 (1 mm), 720 × 240 (4x), 1440 × 480 (16x), float32 |
-| Attributes | computed with OpenFOAM on the simulation mesh: drag and lift (pressure and friction parts), stagnation and base pressure, wall shear, pressure drop, recirculation length and area, flow split, wake deficit, dissipation, vorticity |
-| Mesh study | order of convergence, extrapolated value and grid convergence index of every attribute, from the three meshes |
+| Arrays | 6 channels per run on a regular grid: 180 × 60 (2 mm), 360 × 120 (1 mm), 720 × 240 (0.5 mm), 1440 × 480 (0.25 mm), float32 |
+| Attributes | computed with OpenFOAM on the simulation mesh: drag and lift (pressure and friction parts), stagnation and base pressure, mean and peak wall shear, mean and peak vorticity, pressure drop, recirculation length and area, flow split, wake deficit, dissipation |
+| Surface distributions | pressure and wall shear along the obstacle surface, every run |
+| Mesh study | order of convergence, extrapolated value and grid convergence index of every attribute (1, 0.5, 0.25 mm), and the error of every level against the extrapolated value |
 | Metadata | sampled parameters, geometry, convergence, iterations, timings, peak memory, hardware, software versions of every run |
+
+### Benchmark targets
+
+- **Attributes that converge with the mesh**: drag and lift with their pressure and friction parts, mean wall shear,
+  mean vorticity, recirculation length and area, wake deficit, dissipation, pressure drop between cross-sections,
+  flow split. Each comes with its mesh-study uncertainty (grid convergence index of the 0.25 mm value).
+- **Surface distributions**: pressure and wall shear coefficients along the obstacle.
+- **Peak values** (peak wall shear, peak vorticity) are included but flagged: at sharp corners the exact solution is
+  singular, so they keep growing with refinement and are not mesh-independent targets.
 
 ### Array channels
 
