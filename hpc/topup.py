@@ -4,7 +4,11 @@ when it ends (hpc/job_task.sh), and it is called during monitoring. Each call do
 
     python3 hpc/topup.py                 submit what is ready, up to the limits
     python3 hpc/topup.py --dry-run       only print what would be submitted
-    python3 hpc/topup.py --cases FILE    only the cases listed in FILE (one name per line), e.g. the pilot
+    python3 hpc/topup.py --cases FILE    only the cases listed in FILE (one name per line)
+
+A data root other than the production (e.g. a pilot, MSCOFD_DATA_ROOT) can hold two files of its own:
+    cases.txt     the cases of this root, used when --cases is not given (also by the calls of the jobs)
+    slurm.yaml    entries that replace the top-level entries of config/slurm.yaml (e.g. footprint)
 
 What it does:
 1. one call at a time (file lock) and at most one every min_interval_s seconds
@@ -36,12 +40,23 @@ import ledger  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 
 
-def load_settings():
+def load_settings(root=None):
+    """config/slurm.yaml, with the top-level entries of <root>/slurm.yaml in place of its own, and config/dataset.yaml"""
     with open(REPO / 'config' / 'slurm.yaml') as file:
         slurm = yaml.safe_load(file)
+    if root is not None and (Path(root) / 'slurm.yaml').exists():
+        with open(Path(root) / 'slurm.yaml') as file:
+            slurm.update(yaml.safe_load(file) or {})
     with open(REPO / 'config' / 'dataset.yaml') as file:
         dataset = yaml.safe_load(file)
     return slurm, dataset
+
+
+def cases_file_of(root, path=None):
+    """the file of the cases to run: --cases, else <root>/cases.txt when it exists, else None (all cases)"""
+    if path:
+        return Path(path)
+    return Path(root) / 'cases.txt' if (Path(root) / 'cases.txt').exists() else None
 
 
 def current_window(slurm, now=None):
@@ -119,8 +134,8 @@ def main():
     parser.add_argument("--cases", help="file with the case names to run (default: all cases of the manifest)")
     args = parser.parse_args()
 
-    slurm, dataset = load_settings()
     root = ledger.data_root()
+    slurm, dataset = load_settings(root)
     (root / 'state').mkdir(parents=True, exist_ok=True)
 
     # 1. one call at a time, not more often than min_interval_s
@@ -156,8 +171,9 @@ def main():
     runs = list(dataset['runs'])
     manifest = ledger.read_manifest(root / 'geometry' / 'manifest.csv')
     cases = ledger.case_order(manifest)
-    if args.cases:
-        selected = set(Path(args.cases).read_text().split())
+    cases_file = cases_file_of(root, args.cases)
+    if cases_file:
+        selected = set(Path(cases_file).read_text().split())
         cases = [case for case in cases if case in selected]
     states = ledger.read_states(runs, root)
     retry = []

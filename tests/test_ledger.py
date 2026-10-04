@@ -50,3 +50,20 @@ def test_qos_window_by_date():
     after = datetime.fromisoformat("2026-10-19T00:00:01+03:00")
     assert topup.current_window(slurm, inside)['qos'] == 'asaydam_oct26'
     assert topup.current_window(slurm, after)['qos'] == 'users'
+
+
+def test_data_root_overrides(tmp_path):
+    pytest.importorskip("fcntl")
+    from hpc import topup
+
+    slurm, _ = topup.load_settings(tmp_path)
+    assert slurm['footprint']['pause_used_gib'] == 600
+    assert topup.cases_file_of(tmp_path) is None
+
+    (tmp_path / 'slurm.yaml').write_text("footprint: {pause_used_gib: 900, pause_backlog_gib: 50}\n")
+    (tmp_path / 'cases.txt').write_text("normal_circle_0001\n")
+    slurm, _ = topup.load_settings(tmp_path)
+    assert slurm['footprint'] == {'pause_used_gib': 900, 'pause_backlog_gib': 50}
+    assert slurm['windows'][0]['qos'] == 'asaydam_oct26'
+    assert topup.cases_file_of(tmp_path) == tmp_path / 'cases.txt'
+    assert topup.cases_file_of(tmp_path, 'other.txt').name == 'other.txt'

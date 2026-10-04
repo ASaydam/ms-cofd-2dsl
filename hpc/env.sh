@@ -16,9 +16,10 @@ MSCOFD_REPO=$(readlink -f "${MSCOFD_REPO:-$MSCOFD_HOME/repo}")
 export MSCOFD_HPC_RUN MSCOFD_HOME MSCOFD_DATA_ROOT MSCOFD_REPO
 export MSCOFD_BIND=$MSCOFD_HPC_RUN
 
-# empty when not set up yet (the scripts that source this file may use "set -e")
+# empty when not set up yet (the scripts that source this file may use "set -e"); a remote set before sourcing
+# (e.g. a separate folder for a pilot) is kept
 MSCOFD_IMAGE=$(cat "$MSCOFD_HOME/container/current" 2> /dev/null || true)
-MSCOFD_REMOTE=$(cat "$MSCOFD_HOME/config/remote" 2> /dev/null || true)
+MSCOFD_REMOTE=${MSCOFD_REMOTE:-$(cat "$MSCOFD_HOME/config/remote" 2> /dev/null || true)}
 export MSCOFD_IMAGE MSCOFD_REMOTE
 export MSCOFD_HOST_PYTHON=${MSCOFD_HOST_PYTHON:-/kuacc/apps/anaconda/2024.02/bin/python3}
 

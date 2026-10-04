@@ -19,7 +19,7 @@ source "$MSCOFD_REPO/hpc/env.sh"
 MSCOFD_NODE_ALLOCATED=$(scontrol show node "$(hostname -s)" 2> /dev/null | grep -o "CPUAlloc=[0-9]*" | cut -d= -f2)
 export MSCOFD_NODE_ALLOCATED
 
-apptainer exec --bind "$MSCOFD_BIND" --home "$MSCOFD_DATA_ROOT/container/home" "$MSCOFD_IMAGE" \
+apptainer exec --bind "$MSCOFD_BIND" --home "$MSCOFD_HOME/container/home" "$MSCOFD_IMAGE" \
     bash -c 'source /opt/mscofd/activate.sh && cd "$MSCOFD_REPO" && python -m hpc.run_task "$0" "$1"' "$run" "$case"
 status=$?
 
