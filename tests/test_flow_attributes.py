@@ -23,7 +23,7 @@ def sample_with_wake():
 
 
 def test_attributes_of_a_simple_wake():
-    result, vorticity = attributes(sample_with_wake())
+    result, vorticity = attributes(sample_with_wake(), {"length": 260, "height": 120})
     assert math.isclose(result['recirculation_length_mm'], 20 * 260 / 260, rel_tol=0.02)
     assert result['recirculation_area_mm2'] > 0
     assert 0.4 < result['flow_split_upper'] < 0.6

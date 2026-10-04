@@ -1,16 +1,20 @@
 cff-version: 1.2.0
-message: "If you use this code or the MS-COFD dataset, please cite it as below."
-title: "MS-COFD: generation pipeline of the Multi-Scale Central Object Flow Dataset"
-abbreviation: "MS-COFD"
+message: "If you use this code or the MS-COFD-2DSL dataset, please cite it as below."
+title: "MS-COFD-2DSL: Multi-Scale Central Object Flow Dataset - 2D Steady Laminar (generation pipeline)"
+abbreviation: "MS-COFD-2DSL"
 type: software
+license: MIT
+version: 1.0.0
 authors:
   - family-names: Saydam
     given-names: Alper
 keywords:
   - computational fluid dynamics
   - dataset
+  - multi-resolution
   - laminar flow
   - OpenFOAM
   - gmsh
-# TODO before publication: add affiliation / ORCID, repository URL, version, date and the dataset paper
-# (a "preferred-citation" block pointing to the paper, and the dataset DOI)
+  - machine learning
+# TODO before publication: affiliation / ORCID, repository URL, release date, the dataset DOI and a
+# "preferred-citation" block pointing to the dataset paper

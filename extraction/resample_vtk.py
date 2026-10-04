@@ -1,14 +1,14 @@
 """
 Resamples the flow fields of an OpenFOAM case to a regular grid with VTK.
 
-This replaces the ParaView export of MS-COFD (v4) with the same VTK filters ParaView used, without ParaView:
+Two VTK filters (the ones behind ParaView's OpenFOAM reader and Resample To Image filter):
 
     vtkOpenFOAMReader   internal mesh, cell arrays U and p, cell-to-point interpolation, 0 folder skipped
     vtkResampleToImage  grid over the bounds of the mesh (UseInputBounds), nx x ny x 1 points
 
 The grid points are spread over the whole domain, both ends included (360 x 120 points over 0-360 mm and 0-120 mm
 for the base resolution). Grid points inside the obstacle are outside of the mesh: their vtkValidPointMask is 0 and
-their values are 0, as in the ParaView export.
+their values are 0.
 
     python -m extraction.resample_vtk <case folder> --dims 360 120            # prints a summary
 """

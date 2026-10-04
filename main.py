@@ -1,24 +1,19 @@
 """
-Command line entry of the MS-COFD-2DSL (Multi-Scale Central Object Flow Dataset - 2D Steady Laminar) pipeline,
-every stage reads the
-output of the previous one from disk:
+Command line entry of the MS-COFD-2DSL (Multi-Scale Central Object Flow Dataset - 2D Steady Laminar) pipeline.
 
-    python main.py geometry       # .geo files of all cases + outputs/manifest.csv
-    python main.py mesh           # .msh files with gmsh
-    python main.py foam-setup     # OpenFOAM case folders
-    python main.py all            # the three stages above, one after the other
+The geometry stage writes the .geo files of all cases and the manifest; it is the first step of every production:
 
-    (OpenFOAM runs on a cluster or workstation, see openfoam/scripts/)
-    python -m extraction.check_runs outputs/cases/base
-    python extraction/extract_fields.py outputs/cases/base outputs/extracts/base --dims 260 120   # ParaView env
-
-    python main.py build-arrays base
-    python main.py build-arrays 16x
-
-Settings are in config/dataset.yaml, every stage has options to work on a part of the dataset, e.g.
-
+    python main.py geometry                      # all 4500 cases, all resolutions
     python main.py geometry --sizes smaller --geometries circle --start 1 --end 10
-    python main.py mesh --resolutions base --workers 4
+
+The production runs every case task by task (mesh, solver, arrays, attributes, archive), see hpc/run_task.py and
+hpc/topup.py. For trying a few cases by hand, the meshes and OpenFOAM case folders can also be made in bulk:
+
+    python main.py mesh --resolutions base --workers 4      # .msh files with gmsh
+    python main.py foam-setup --resolutions base            # OpenFOAM case folders (openfoam/scripts/run_case.sh)
+    python main.py all                                      # geometry, mesh and foam-setup
+
+Settings are in config/dataset.yaml; the output goes to the data root (MSCOFD_DATA_ROOT, default outputs/).
 """
 
 import argparse
@@ -49,24 +44,14 @@ def run_foam_setup(config, args):
         if args.init_from and args.init_from != resolution:
             init_from = config['paths']['cases'] / args.init_from
         create_foam(config['paths']['mesh_files'] / resolution, config['paths']['cases'] / resolution, resolution,
-                    template_set=args.templates, init_from=init_from,
-                    overwrite=args.overwrite)
-
-
-def run_build_arrays(config, args):
-    # imported here, the other stages do not need it
-    from extraction.build_arrays import build_arrays
-
-    nx, ny = config['extraction'][args.resolution]
-    build_arrays(args.extract_dir or config['paths']['extracts'] / args.resolution,
-                 args.output_dir or config['paths']['arrays'] / args.resolution, args.resolution, nx, ny,
-                 dtype=args.dtype)
+                    template_set=args.templates, init_from=init_from, overwrite=args.overwrite)
 
 
 def main():
     # the config file is read first, the defaults of the other options come from it
     config_option = argparse.ArgumentParser(add_help=False)
-    config_option.add_argument("--config", default=str(REPO_ROOT / "config" / "dataset.yaml"), help="configuration file")
+    config_option.add_argument("--config", default=str(REPO_ROOT / "config" / "dataset.yaml"),
+                               help="configuration file")
     config = load_config(config_option.parse_known_args()[0].config)
 
     parser = argparse.ArgumentParser(description="MS-COFD-2DSL dataset pipeline, settings are in config/dataset.yaml",
@@ -91,24 +76,16 @@ def main():
     mesh.add_argument("--workers", type=int, default=None, help="meshes created at the same time")
     mesh.add_argument("--threads", type=int, default=None, help="gmsh threads per mesh")
 
-    stages.add_parser("geometry", parents=[common, geometry], help="create .geo files and the manifest")
-    stages.add_parser("mesh", parents=[common, mesh], help="create .msh files with gmsh")
     foam = argparse.ArgumentParser(add_help=False)
     foam.add_argument("--templates", default="second-order", choices=["first-order", "second-order"],
                       help="OpenFOAM settings, see openfoam/create_foam.py")
     foam.add_argument("--init-from", default=None, choices=list(config['resolutions']),
                       help="start the cases from the solution of this resolution's cases (e.g. 16x from base)")
 
+    stages.add_parser("geometry", parents=[common, geometry], help="create .geo files and the manifest")
+    stages.add_parser("mesh", parents=[common, mesh], help="create .msh files with gmsh")
     stages.add_parser("foam-setup", parents=[common, foam], help="create OpenFOAM case folders")
     stages.add_parser("all", parents=[common, geometry, mesh, foam], help="geometry, mesh and foam-setup")
-
-    arrays = stages.add_parser("build-arrays", help="build the dataset arrays from the ParaView extracts")
-    arrays.add_argument("resolution", choices=list(config['extraction']))
-    arrays.add_argument("--extract-dir", default=None, help="default: paths.extracts/<resolution>")
-    arrays.add_argument("--output-dir", default=None, help="default: paths.arrays/<resolution>")
-    arrays.add_argument("--dtype", default="float32", choices=["float32", "float64"],
-                        help="float32 keeps every digit of the exported fields (5 significant digits)")
-
 
     args = parser.parse_args()
 
@@ -118,8 +95,6 @@ def main():
         run_mesh(config, args)
     if args.stage in ("foam-setup", "all"):
         run_foam_setup(config, args)
-    if args.stage == "build-arrays":
-        run_build_arrays(config, args)
 
 
 if __name__ == "__main__":

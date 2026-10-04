@@ -12,9 +12,8 @@ Supported shapes:
 Every function takes a `rng` argument, a `random.Random` instance, instead of using the global random module.
 This way every case can be regenerated from its seed (see geometries/sampling.py).
 
-The shape functions are the ones that created MS-COFD (v4), only the random number generator is passed in and the
-retry logic is written as loops. The shapes are drawn upright around the nominal center; rotation and shift are
-applied afterwards in sampling.draw_obstacle.
+The shapes are drawn upright around the nominal center (every corner moved by a random offset); rotation and shift
+are applied afterwards in sampling.draw_obstacle.
 """
 
 import numpy as np
@@ -125,7 +124,6 @@ def create_right_triangle(width, height, origin, variance, rng):
     np_coords = np.empty((3, 2))
 
     # making sure that pointy edge is between upper and lower point, draw a new rectangle if it is not
-    # (the original code called create_left_triangle here by mistake)
     while True:
         temp_coords = create_rectangle(width, height, origin, variance, rng)
 
@@ -139,7 +137,7 @@ def create_right_triangle(width, height, origin, variance, rng):
 
 def create_arcs(coordinates, rng):
     """
-    creates the arc mid-points of a circular obstacle (as for the smaller and larger cases of MS-COFD v4).
+    creates the arc mid-points of a circular obstacle.
     Every mid-point is the middle of its side plus a random offset, rounded to 0.1 mm.
     :param coordinates: corner points of the circle, output of create_rectangle
     :param rng: random.Random instance

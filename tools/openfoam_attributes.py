@@ -1,8 +1,8 @@
 """
 Flow attributes of OpenFOAM cases (latest time step), computed with OpenFOAM's own tools on the simulation mesh.
 
-    python -m tools.openfoam_attributes run pilot/cases       # with OpenFOAM loaded (standard library only)
-    python -m tools.openfoam_attributes collect pilot/cases   # without OpenFOAM, needs numpy
+    python -m tools.openfoam_attributes run cases       # with OpenFOAM loaded (standard library only)
+    python -m tools.openfoam_attributes collect cases   # without OpenFOAM, needs numpy
     (--resolutions base 4x 16x for a mesh convergence study, see tools/mesh_study.py)
 
 run:      for every case folder <cases>/<resolution>/<case>, openfoam/scripts/openfoam_attributes.sh runs in
@@ -211,7 +211,7 @@ def collect(cases, resolutions):
 def main():
     parser = argparse.ArgumentParser(description="Flow attributes computed with OpenFOAM")
     parser.add_argument("step", choices=["run", "collect"], help="run (with OpenFOAM) or collect (with numpy)")
-    parser.add_argument("cases", help="folder with one sub-folder per resolution, e.g. pilot/cases")
+    parser.add_argument("cases", help="folder with one sub-folder per resolution, e.g. cases")
     parser.add_argument("--manifest", default=None,
                         help="manifest with the obstacle coordinates of the cases (run), default: paths.manifest of "
                              "config/dataset.yaml")

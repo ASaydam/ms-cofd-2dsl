@@ -15,9 +15,8 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Settings for converged solutions (the released dataset used PCG for p, relaxation p 0.3 / U 0.7 and stopped at
-// initial residuals U 1e-3 / p 1e-2, which stopped the 16x cases at ~170 iterations, far from steady state).
-// The converged solution does not depend on these settings, the discretisation (fvSchemes) is the released one.
+// Solver settings for converged steady solutions: SIMPLEC (consistent), GAMG for p, residualControl 1e-6.
+// The converged solution does not depend on these settings, only on the discretisation (fvSchemes).
 
 solvers
 {

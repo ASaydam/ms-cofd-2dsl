@@ -9,7 +9,7 @@
 #       [<domain length> <domain height>]
 #
 # box, x centroid (obstacle centroid), x wake (20 mm behind the obstacle) and the domain size in m (default
-# 0.26 x 0.12, the domain of MS-COFD v4).
+# 0.36 x 0.12).
 # Results in the work folder (read by tools/openfoam_attributes.py):
 #   postProcessing/obstacleForces/<time>/force*.dat          total, pressure and viscous force (rho = 1)
 #   postProcessing/obstacleSurface/<time>/*_obstacle.raw     p and wallShearStress on the obstacle faces
@@ -20,7 +20,7 @@
 
 set -e
 case_folder=$1; work=$2; xmin=$3; ymin=$4; xmax=$5; ymax=$6; x_centroid=$7; x_wake=$8
-length=${9:-0.26}; height=${10:-0.12}
+length=${9:-0.36}; height=${10:-0.12}
 x_inlet_section=0.01
 x_outlet_section=$(awk -v l="$length" 'BEGIN {print l - 0.01}')
 PYTHON=${PYTHON:-python3}

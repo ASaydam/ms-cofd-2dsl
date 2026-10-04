@@ -3,7 +3,7 @@ Mesh convergence study of the flow attributes: three meshes of every case (base 
 evaluated with the procedure of Celik et al. (2008), "Procedure for estimation and reporting of uncertainty due to
 discretization in CFD applications", J. Fluids Eng. 130(7):
 
-    python -m tools.mesh_study pilot/openfoam_attributes.csv
+    python -m tools.mesh_study openfoam_attributes.csv
 
 The input is the openfoam_attributes.csv of tools/openfoam_attributes.py collected with --resolutions base 4x 16x.
 For every case and attribute (phi_1 = 16x, phi_2 = 4x, phi_3 = base, cells N_i):

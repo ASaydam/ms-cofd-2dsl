@@ -1,7 +1,7 @@
 """
 This module creates the .msh files from the .geo files with gmsh.
 
-gmsh is called once for every .geo file (same arguments as the released meshes: -3 -format msh2 -n <threads>).
+gmsh is called once for every .geo file (gmsh -3 <file> -format msh2 -nt <threads>).
 A mesh is first written to a temporary file and renamed when gmsh finishes, so an interrupted run can be started
 again: the finished meshes are skipped. Every run writes mesh_log.csv next to the mesh folders.
 """
@@ -72,7 +72,7 @@ def mesh_one(command_prefix, geo_file, msh_file, threads, timeout):
     :return: status (ok / failed / timeout), duration in seconds and the gmsh output
     """
     temporary_file = msh_file.with_name(msh_file.name + ".part")
-    arguments = ["-3", str(geo_file), "-o", str(temporary_file), "-format", "msh2", "-n", str(threads)]
+    arguments = ["-3", str(geo_file), "-o", str(temporary_file), "-format", "msh2", "-nt", str(threads)]
 
     started = time.perf_counter()
     try:

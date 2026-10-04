@@ -1,12 +1,13 @@
 """
-Field differences between the base and the 16x solutions: the base fields are upsampled to the 16x grid with
-several interpolation methods and compared with the 16x fields point by point:
+Field differences between a coarse and a fine run of every case (default base_lu and 16x): the coarse fields are
+upsampled to the fine grid with several interpolation methods and compared with the fine fields point by point.
+These are the interpolation baselines a learned coarse-to-fine correction has to beat.
 
-    python -m tools.upsample_mse pilot/ms-cofd.h5
-    python -m tools.upsample_mse pilot/ms-cofd.h5 --released mscofd2000_v4.h5   # also the released fields
+    python -m tools.upsample_mse                              # results in the data root (MSCOFD_DATA_ROOT)
+    python -m tools.upsample_mse --coarse base_fo --fine 16x
 
-Both grids span the whole channel (0-260 mm, 0-120 mm) with points on its edges, so the 16x point i lies at base
-index i * (260 - 1) / (1040 - 1) ("align corners"). Methods:
+Both grids span the whole channel with points on its edges, so the fine point i lies at coarse index
+i * (nx_coarse - 1) / (nx_fine - 1) ("align corners"). Methods:
 
     nearest          value of the nearest base point
     bilinear         linear in x and y (4 base points)
@@ -22,7 +23,7 @@ For every case, channel (u_x, u_y, p) and method, over the fluid points of the 1
     rel_rmse_%          square root of the mse relative to the RMS of the 16x field
     near_obstacle_%     share of the squared difference within 2 mm of the obstacle
 
-Writes <dataset>_upsample_mse.csv and prints the medians over the cases. Needs h5py and scipy.
+Writes results/upsample_mse_<coarse>_<fine>.csv and prints the medians over the cases. Needs scipy.
 """
 
 import argparse
@@ -33,12 +34,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils import write_csv
+from utils import data_root, load_config, write_csv
+from dataset.results import pairs
 
 CHANNELS = {'u_x': 0, 'u_y': 1, 'p': 2}
 CELL_TYPE = 4
 METHODS = ['nearest', 'bilinear', 'bicubic', 'bicubic_filled']
-FINE_SPACING = 0.25  # mm, 16x grid (1040 x 480 points over 260 x 120 mm, rounded)
 
 
 def keys_kernel(s, a=-0.5):
@@ -97,13 +98,17 @@ def upsample(field, nx, ny, method, cell_type=None):
     return weights(bx, nx, method) @ field @ weights(by, ny, method).T
 
 
-def compare(base, fine):
-    """rows of mse, relative rmse and near-obstacle share for every channel and method of one case"""
+def compare(base, fine, domain_length=360):
+    """
+    rows of mse, relative rmse and near-obstacle share for every channel and method of one case
+    :param domain_length: channel length in mm, for the spacing of the fine grid
+    """
     from scipy.ndimage import distance_transform_edt
 
     nx, ny = fine.shape[1:]
+    spacing = domain_length / (nx - 1)
     fluid = fine[CELL_TYPE] != 1
-    near = fluid & (distance_transform_edt(~obstacle_mask(fine[CELL_TYPE])) * FINE_SPACING <= 2.0)
+    near = fluid & (distance_transform_edt(~obstacle_mask(fine[CELL_TYPE])) * spacing <= 2.0)
     rows = []
     for method in METHODS:
         for name, channel in CHANNELS.items():
@@ -116,48 +121,33 @@ def compare(base, fine):
     return rows
 
 
-def case_rows(file, names=None):
-    """(case name, base sample, 16x sample) of a dataset file, only the given case names when there are some"""
-    all_names = [n.decode() if isinstance(n, bytes) else n for n in file['metadata/case_name'][:]]
-    for index, name in enumerate(all_names):
-        if names is None or name in names:
-            yield name, file['base_tlast_6ch'][index].astype(float), file['16x_tlast_6ch'][index].astype(float)
-
-
 def main():
-    parser = argparse.ArgumentParser(description="MSE between the 16x fields and the upsampled base fields")
-    parser.add_argument("dataset", help="dataset file with base_tlast_6ch, 16x_tlast_6ch and metadata/case_name")
-    parser.add_argument("--released", help="released dataset (mscofd2000_v4.h5): the same cases compared there too")
+    parser = argparse.ArgumentParser(description="MSE between a fine run and the upsampled coarse run")
+    parser.add_argument("--coarse", default="base_lu", help="coarse run (base_lu, base_fo or 4x)")
+    parser.add_argument("--fine", default="16x", help="fine run (16x or 4x)")
     args = parser.parse_args()
 
-    # imported here, the interpolation functions are used without h5py as well
-    import h5py
-
+    root, domain = data_root(), load_config()['domain']
     results = []
-    sources = [('new', args.dataset)] + ([('released', args.released)] if args.released else [])
-    names = None
-    for source, path in sources:
-        with h5py.File(path, 'r') as file:
-            for case_name, base, fine in case_rows(file, names):
-                for row in compare(base, fine):
-                    results.append({'source': source, 'case_name': case_name, **row})
-                print(f"{source:8s} {case_name}")
-        names = {row['case_name'] for row in results}
+    for case_name, coarse, fine in pairs(root, args.coarse, args.fine):
+        for row in compare(coarse, fine, domain['length']):
+            results.append({'case_name': case_name, **row})
+    if not results:
+        raise SystemExit(f"no case has results of both {args.coarse} and {args.fine} in {root / 'results'}")
 
-    output = Path(args.dataset).with_name(Path(args.dataset).stem + "_upsample_mse.csv")
-    write_csv(results, output, ['source', 'case_name', 'method', 'channel', 'mse', 'rel_rmse_%', 'near_obstacle_%'])
+    output = root / 'results' / f"upsample_mse_{args.coarse}_{args.fine}.csv"
+    write_csv(results, output, ['case_name', 'method', 'channel', 'mse', 'rel_rmse_%', 'near_obstacle_%'])
 
-    print(f"\nmedian over the cases: mse (relative rmse %, share within 2 mm of the obstacle %)")
-    for source, _ in sources:
-        print(f"{source} fields")
-        print(f"{'method':16s} " + " ".join(f"{name:>30s}" for name in CHANNELS))
-        for method in METHODS:
-            cells = []
-            for name in CHANNELS:
-                group = [r for r in results if r['source'] == source and r['method'] == method and r['channel'] == name]
-                cells.append(f"{np.median([r['mse'] for r in group]):10.3e} ({np.median([r['rel_rmse_%'] for r in group]):5.2f}, "
-                             f"{np.median([r['near_obstacle_%'] for r in group]):4.1f})")
-            print(f"{method:16s} " + " ".join(f"{cell:>30s}" for cell in cells))
+    print(f"{args.coarse} upsampled to {args.fine}, median over {len(results) // (len(METHODS) * len(CHANNELS))} "
+          f"cases: mse (relative rmse %, share within 2 mm of the obstacle %)")
+    print(f"{'method':16s} " + " ".join(f"{name:>30s}" for name in CHANNELS))
+    for method in METHODS:
+        cells = []
+        for name in CHANNELS:
+            group = [r for r in results if r['method'] == method and r['channel'] == name]
+            cells.append(f"{np.median([r['mse'] for r in group]):10.3e} ({np.median([r['rel_rmse_%'] for r in group]):5.2f}, "
+                         f"{np.median([r['near_obstacle_%'] for r in group]):4.1f})")
+        print(f"{method:16s} " + " ".join(f"{cell:>30s}" for cell in cells))
     print(f"Results written to {output}")
 
 

@@ -6,7 +6,7 @@ copied in as mesh.msh. The mesh is converted and the solver is run by openfoam/s
 
 Template sets (the runs of every case are listed in config/dataset.yaml):
 
-    first-order   base only: first-order upwind convection, the low-fidelity solver of MS-COFD (v4)
+    first-order   base only: first-order upwind convection (a cheaper, more diffusive low-fidelity solution)
     second-order  base, 4x and 16x: second-order upwind convection (linearUpwind)
 
 Both sets run to initial residuals of 1e-6 (residualControl), endTime is only a cap.

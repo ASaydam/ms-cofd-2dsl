@@ -16,8 +16,7 @@ FoamFile
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 // gmshToFoam creates every physical surface of the .msh file as a "patch".
-// changeDictionary sets the patch types by name (the released cases did the
-// same with sed on fixed line numbers of constant/polyMesh/boundary).
+// changeDictionary sets the patch types by name.
 
 boundary
 {

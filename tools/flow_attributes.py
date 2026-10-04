@@ -1,8 +1,9 @@
 """
-Compares flow attributes of the base and 16x solutions of every case of a dataset file, to see which quantities
+Compares flow attributes of a coarse and a fine run of every case (default base_lu and 16x), to see which quantities
 the coarse mesh gets right and which it gets wrong.
 
-    python -m tools.flow_attributes pilot/ms-cofd.h5 --openfoam pilot/openfoam_attributes.csv
+    python -m tools.flow_attributes                          # results in the data root (MSCOFD_DATA_ROOT)
+    python -m tools.flow_attributes --coarse base_fo --fine 16x
 
 Attributes computed from the arrays (on each resolution's own grid, mm and m/s):
 
@@ -14,17 +15,17 @@ Attributes computed from the arrays (on each resolution's own grid, mm and m/s):
     peak_vorticity            largest |vorticity| (shear layers leaving the obstacle), first 5 mm left out
     wake_min_u_x              smallest u_x 20 mm behind the obstacle (wake velocity deficit)
 
-The same attributes computed with OpenFOAM on the simulation mesh (tools/openfoam_attributes.py) are the reference
-values; they also give the forces on the obstacle (drag, pressure and friction drag, lift), the peak wall shear and
-the front (stagnation) and base pressure. With them the summary shows
+The same attributes computed with OpenFOAM on the simulation mesh (results/<run>/<case>_attributes.json, see
+tools/openfoam_attributes.py) are the reference values; they also give the forces on the obstacle (drag, pressure
+and friction drag, lift), the peak wall shear and the front (stagnation) and base pressure. The summary shows
 
-1. base vs 16x: (base - 16x) / |16x| in %, OpenFOAM values where available (lift relative to the drag, lift is
-   close to zero for nearly symmetric obstacles), plus the field differences on the 16x grid (base interpolated):
-   relative L2 of u_x, p and vorticity,
+1. coarse vs fine: (coarse - fine) / |fine| in %, OpenFOAM values where available (lift relative to the drag, lift
+   is close to zero for nearly symmetric obstacles), plus the field differences on the fine grid (coarse
+   interpolated): relative L2 of u_x, p and vorticity,
 2. arrays vs OpenFOAM: (array - OpenFOAM) / |OpenFOAM| in %, how much of an attribute is lost by computing it
    from the arrays (what a network predicts) instead of on the simulation mesh.
 
-Writes <dataset>_attributes.csv and prints a summary. Needs h5py.
+Writes results/flow_attributes_<coarse>_<fine>.csv and prints a summary.
 """
 
 import argparse
@@ -35,7 +36,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils import read_csv, write_csv
+from utils import data_root, load_config, write_csv  # noqa: E402
+from dataset.results import load_attributes, pairs  # noqa: E402
 
 NU = 1e-4  # m^2/s
 ARRAY_ATTRIBUTES = ['recirculation_length_mm', 'recirculation_area_mm2', 'flow_split_upper', 'dp_inlet_outlet',
@@ -43,16 +45,16 @@ ARRAY_ATTRIBUTES = ['recirculation_length_mm', 'recirculation_area_mm2', 'flow_s
 OPENFOAM_ONLY = ['Fx', 'Fx_pressure', 'Fx_viscous', 'Fy', 'max_wall_shear', 'front_pressure', 'base_pressure']
 
 
-def spacing(nx, ny):
-    """grid spacing in mm (ParaView points include both ends of the 260 mm x 120 mm domain)"""
-    return 260 / (nx - 1), 120 / (ny - 1)
+def spacing(nx, ny, domain):
+    """grid spacing in mm (the grid points include both ends of the domain)"""
+    return domain['length'] / (nx - 1), domain['height'] / (ny - 1)
 
 
-def attributes(sample):
-    """flow attributes of one (6, nx, ny) sample"""
+def attributes(sample, domain):
+    """flow attributes of one (6, nx, ny) sample, domain in mm (length, height)"""
     ux, uy, p, cell_type = sample[0], sample[1], sample[2], sample[4]
     nx, ny = ux.shape
-    hx, hy = spacing(nx, ny)
+    hx, hy = spacing(nx, ny, domain)
     x = np.arange(nx)[:, None] * hx * np.ones((1, ny))
     y = np.ones((nx, 1)) * np.arange(ny)[None, :] * hy
 
@@ -87,7 +89,7 @@ def attributes(sample):
 
 
 def upsample(field, nx, ny):
-    """base field at the 16x grid points (bilinear)"""
+    """coarse field at the fine grid points (bilinear)"""
     bx, by = field.shape
     xi = np.arange(nx) * (bx - 1) / (nx - 1)
     yi = np.arange(ny) * (by - 1) / (ny - 1)
@@ -97,10 +99,10 @@ def upsample(field, nx, ny):
             (1 - wx) * wy * field[np.ix_(x0, y0 + 1)] + wx * wy * field[np.ix_(x0 + 1, y0 + 1)])
 
 
-def relative_difference(base, fine, scale=None):
-    """(base - fine) / |scale| in %, scale = fine by default"""
+def relative_difference(coarse, fine, scale=None):
+    """(coarse - fine) / |scale| in %, scale = fine by default"""
     scale = abs(fine) if scale is None else abs(scale)
-    return 100 * (base - fine) / scale if scale > 1e-30 else float('nan')
+    return 100 * (coarse - fine) / scale if scale > 1e-30 else float('nan')
 
 
 def summary(label, values):
@@ -115,78 +117,71 @@ def summary(label, values):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare flow attributes of the base and 16x solutions")
-    parser.add_argument("dataset", help="dataset file with base_tlast_6ch, 16x_tlast_6ch and metadata/case_name")
-    parser.add_argument("--openfoam", help="openfoam_attributes.csv of tools/openfoam_attributes.py")
+    parser = argparse.ArgumentParser(description="Compare flow attributes of a coarse and a fine run")
+    parser.add_argument("--coarse", default="base_lu", help="coarse run (base_lu, base_fo or 4x)")
+    parser.add_argument("--fine", default="16x", help="fine run (16x or 4x)")
     args = parser.parse_args()
 
-    # imported here, the attribute functions are used without h5py as well
-    import h5py
+    root, domain = data_root(), load_config()['domain']
+    runs = (args.coarse, args.fine)
 
-    file = h5py.File(args.dataset, 'r')
-    names = [name.decode() if isinstance(name, bytes) else name for name in file['metadata/case_name'][:]]
-    openfoam = {}
-    if args.openfoam:
-        openfoam = {(row['case_name'], row['resolution']): row for row in read_csv(args.openfoam)
-                    if row['status'] == 'ok'}
-
-    def openfoam_value(case_name, resolution, name):
-        row = openfoam.get((case_name, resolution))
-        return float(row[name]) if row and row.get(name, '') != '' else float('nan')
+    def openfoam_value(case_name, run, name):
+        value = load_attributes(root, run, case_name).get(name, '')
+        return float(value) if value not in ('', None) else float('nan')
 
     rows = []
-    for i, case_name in enumerate(names):
-        base, fine = file['base_tlast_6ch'][i].astype(float), file['16x_tlast_6ch'][i].astype(float)
+    for case_name, coarse, fine in pairs(root, args.coarse, args.fine):
         row = {'case_name': case_name, 'size': case_name.split('_')[0],
                'geometry': case_name.split('_', 1)[1].rsplit('_', 1)[0]}
 
         array_values = {}
-        (array_values['base'], vorticity_base), (array_values['16x'], vorticity_fine) = attributes(base), attributes(fine)
+        (array_values[args.coarse], vorticity_coarse), (array_values[args.fine], vorticity_fine) = (
+            attributes(coarse, domain), attributes(fine, domain))
 
         for name in ARRAY_ATTRIBUTES + OPENFOAM_ONLY:
             values = {}
-            for resolution in ('base', '16x'):
-                reference = openfoam_value(case_name, resolution, name)
+            for run in runs:
+                reference = openfoam_value(case_name, run, name)
                 if name in ARRAY_ATTRIBUTES:
-                    array_value = array_values[resolution][name]
-                    row[f'{name}_{resolution}_array'] = array_value
-                    row[f'{name}_{resolution}_array_vs_openfoam_%'] = relative_difference(array_value, reference)
+                    array_value = array_values[run][name]
+                    row[f'{name}_{run}_array'] = array_value
+                    row[f'{name}_{run}_array_vs_openfoam_%'] = relative_difference(array_value, reference)
                     # OpenFOAM value when there is one, the array value otherwise
-                    values[resolution] = reference if not np.isnan(reference) else array_value
+                    values[run] = reference if not np.isnan(reference) else array_value
                 else:
-                    values[resolution] = reference
-                row[f'{name}_{resolution}'] = values[resolution]
-            scale = values['16x'] if name != 'Fy' else openfoam_value(case_name, '16x', 'Fx')
-            row[f'{name}_diff_%'] = relative_difference(values['base'], values['16x'], scale)
+                    values[run] = reference
+                row[f'{name}_{run}'] = values[run]
+            scale = values[args.fine] if name != 'Fy' else openfoam_value(case_name, args.fine, 'Fx')
+            row[f'{name}_diff_%'] = relative_difference(values[args.coarse], values[args.fine], scale)
 
-        # field differences on the 16x grid, fluid points without the inlet corners
+        # field differences on the fine grid, fluid points without the inlet corners
         nx, ny = fine.shape[1:]
-        region = (fine[4] != 1) & (np.arange(nx)[:, None] * 260 / (nx - 1) > 5)
-        for name, coarse_field, fine_field in (('u_x', base[0], fine[0]), ('p', base[2], fine[2]),
-                                               ('vorticity', vorticity_base, vorticity_fine)):
+        region = (fine[4] != 1) & (np.arange(nx)[:, None] * domain['length'] / (nx - 1) > 5)
+        for name, coarse_field, fine_field in (('u_x', coarse[0], fine[0]), ('p', coarse[2], fine[2]),
+                                               ('vorticity', vorticity_coarse, vorticity_fine)):
             difference = upsample(coarse_field, nx, ny) - fine_field
             row[f'field_rel_l2_{name}_%'] = 100 * float(np.linalg.norm(difference[region]) /
                                                         np.linalg.norm(fine_field[region]))
         rows.append(row)
 
-    output = Path(args.dataset).with_name(Path(args.dataset).stem + "_attributes.csv")
+    if not rows:
+        sys.exit(f"no case has results of both {args.coarse} and {args.fine} in {root / 'results'}")
+    output = root / 'results' / f"flow_attributes_{args.coarse}_{args.fine}.csv"
     write_csv(rows, output, list(rows[0].keys()))
 
-    source = "OpenFOAM" if openfoam else "arrays"
-    print(f"{len(rows)} cases. 1) base vs 16x, (base - 16x) / |16x| in % ({source} values, lift relative to drag)")
+    print(f"{len(rows)} cases. 1) {args.coarse} vs {args.fine}, (coarse - fine) / |fine| in % "
+          f"(OpenFOAM values where available, lift relative to drag)")
     print(f"{'attribute':34s} {'mean':>8s} {'mean |.|':>9s} {'max |.|':>8s}  worst case")
     for name in OPENFOAM_ONLY + ARRAY_ATTRIBUTES:
         summary(name, [(row[f'{name}_diff_%'], row['case_name']) for row in rows])
     for name in ('u_x', 'p', 'vorticity'):
         summary(f"field L2 {name} (arrays)", [(row[f'field_rel_l2_{name}_%'], row['case_name']) for row in rows])
 
-    if openfoam:
-        print("\n2) arrays vs OpenFOAM, (array - OpenFOAM) / |OpenFOAM| in %")
-        print(f"{'attribute':34s} {'mean':>8s} {'mean |.|':>9s} {'max |.|':>8s}  worst case")
-        for name in ARRAY_ATTRIBUTES:
-            for resolution in ('base', '16x'):
-                summary(f"{name} ({resolution})",
-                        [(row[f'{name}_{resolution}_array_vs_openfoam_%'], row['case_name']) for row in rows])
+    print("\n2) arrays vs OpenFOAM, (array - OpenFOAM) / |OpenFOAM| in %")
+    print(f"{'attribute':34s} {'mean':>8s} {'mean |.|':>9s} {'max |.|':>8s}  worst case")
+    for name in ARRAY_ATTRIBUTES:
+        for run in runs:
+            summary(f"{name} ({run})", [(row[f'{name}_{run}_array_vs_openfoam_%'], row['case_name']) for row in rows])
     print(f"Attributes written to {output}")
 
 

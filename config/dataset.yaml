@@ -16,7 +16,7 @@ domain:
 # Placement of the obstacles. Every obstacle is drawn around the nominal center, rotated about its centroid and
 # moved by a random shift. An obstacle that does not keep the minimum gaps is drawn again (see check_geometry).
 placement:
-  center: [130, 60]     # nominal center, the same distance from the inlet as in MS-COFD (v4)
+  center: [130, 60]     # nominal center, 130 mm from the inlet
   shift_x: [-30, 10]    # uniform, mm (more upstream than downstream, large obstacles need room for their wake)
   shift_y: [-15, 15]    # uniform, mm
   rotation: [-45, 45]   # uniform, degrees, counter-clockwise
@@ -45,8 +45,6 @@ cases_per_geometry:
 # Obstacle sizes, one sampling scheme for all sizes:
 #   width  = nominal width  * scale * (1 + uniform(-width_jitter,  width_jitter))
 #   height = nominal height * scale * (1 + uniform(-height_jitter, height_jitter))
-# The nominal sizes are the middle of the ranges of the original normal size cases; the triangles use 42.5 mm,
-# the size from which the smaller / larger cases of MS-COFD (v4) were scaled (27.625 = 0.65 x 42.5).
 # variance controls how far every corner can move away from its ideal position (see create_variance).
 sizes:
   width_jitter: 0.10
@@ -70,7 +68,7 @@ meshing:
   timeout: 3600  # seconds before a single mesh is given up
 
 # The OpenFOAM runs of every case (openfoam/case-templates/<templates>/<resolution>):
-#   base_fo : 1 mm mesh, first-order upwind convection (the low-fidelity solver of MS-COFD v4)
+#   base_fo : 1 mm mesh, first-order upwind convection (a cheaper, more diffusive low-fidelity solution)
 #   base_lu : 1 mm mesh, second-order upwind convection (linearUpwind)
 #   4x, 16x : 0.5 mm and 0.25 mm meshes, second order, started from the base_lu solution (mapFields)
 runs:
