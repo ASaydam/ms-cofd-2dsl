@@ -29,6 +29,9 @@ where integrated; the first 5 mm of the channel are left out where noted, the in
     recirculation_length_mm    furthest cell with u_x < 0 behind the obstacle, from its downstream end
     flow_split_upper           share of the flow above the obstacle at its centroid (sets)
     wake_min_u_x               smallest u_x 20 mm behind the obstacle (sets)
+    outlet_reverse_flow        flow rate with u_x < 0 in the last 5 mm of the channel, relative to the net flow rate
+                               (cells, area weighted); above 0 reverse flow reaches the outlet, where the boundary
+                               condition (zero gradient) then sets part of the solution
 """
 
 import argparse
@@ -48,7 +51,7 @@ DEPTH = 0.01     # m, thickness of the 2D meshes
 FIELDS = ['case_name', 'resolution', 'status', 'time', 'cells', 'faces', 'Fx', 'Fy', 'Fx_pressure', 'Fy_pressure',
           'Fx_viscous', 'Fy_viscous', 'max_wall_shear', 'mean_wall_shear', 'front_pressure', 'base_pressure',
           'dp_inlet_outlet', 'dp_sections', 'peak_vorticity', 'mean_vorticity', 'dissipation', 'recirculation_area_mm2', 'recirculation_length_mm',
-          'flow_split_upper', 'wake_min_u_x']
+          'flow_split_upper', 'wake_min_u_x', 'outlet_reverse_flow']
 
 RE_VECTOR = re.compile(r"\(([-\d.eE+]+)\s+([-\d.eE+]+)\s+[-\d.eE+]+\)")
 
@@ -165,6 +168,8 @@ def collect_case(work):
     x_end = x_faces.max() * 1000
     behind = reverse & (x_mm > x_end)
     row['recirculation_length_mm'] = float(x_mm[behind].max() - x_end) if behind.any() else 0.0
+    end = x_mm > x_mm.max() - 5
+    row['outlet_reverse_flow'] = float((np.clip(-ux[end], 0, None) * area[end]).sum() / (ux[end] * area[end]).sum())
 
     # lines across the channel, sampled from each wall up to the obstacle
     lines = os.path.join(work, "postProcessing", "lines", "*")
