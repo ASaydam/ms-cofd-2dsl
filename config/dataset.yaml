@@ -96,6 +96,14 @@ runs:
   4x:      {resolution: 4x,   templates: second-order, init_from: base_lu}
   16x:     {resolution: 16x,  templates: second-order, init_from: base_lu}
 
+# splits of the dataset files (dataset/splits.py, dataset/build_dataset.py): out-of-distribution test sets from the
+# upper tails (above ood_quantile) of blockage, |rotation| and the position shift, the rest per size and family
+splits:
+  seed: 2026
+  ood_quantile: 0.95
+  ood: [blockage, rotation, position]
+  fractions: {train: 0.8, val: 0.1, test: 0.1}
+
 # grid size of the arrays (one point per 2 mm for 0.25x, per mm for base, two per mm for 4x, four for 16x)
 extraction:
   0.25x: [180, 60]
