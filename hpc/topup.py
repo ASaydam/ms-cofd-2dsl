@@ -117,14 +117,15 @@ def dataset_cases(root, dataset, states, cases_file=None):
     return cases, discarded, reserves
 
 
-def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependencies=None, gate=None, discarded=()):
+def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependencies=None, gate=None, discarded=(),
+                 priority=None):
     """
     the tasks to submit: failed tasks and interrupted ones (their job is gone without a done / failed state) with
     submissions left, then the ready tasks (ledger.ready_tasks); a task is in only one of the lists; nothing of a
     discarded case
     :param attempts_of: function (run, case) -> number of submissions so far
     :param dependencies: {run: run it starts from} (ledger.dependencies_of)
-    :param gate, discarded: see ledger.ready_tasks
+    :param gate, discarded, priority: see ledger.ready_tasks
     :return: retry, ready, exhausted (interrupted tasks without submissions left: (run, case, marker content))
     """
     selected = set(cases) - set(discarded)
@@ -138,7 +139,7 @@ def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependenc
                 retry.append((run, case))
             elif interrupted:
                 exhausted.append((run, case, content))
-    return retry, ledger.ready_tasks(cases, runs, states, dependencies, gate, discarded), exhausted
+    return retry, ledger.ready_tasks(cases, runs, states, dependencies, gate, discarded, priority), exhausted
 
 
 def used_gib(root):
@@ -267,7 +268,8 @@ def top_up(root, slurm, dataset, args):
     cases, discarded, reserves = dataset_cases(root, dataset, states, cases_file_of(root, args.cases))
     retry, ready, exhausted = select_tasks(states, jobs, cases, runs, lambda run, case: attempts_of(root, run, case),
                                            slurm['max_attempts'], ledger.dependencies_of(dataset['runs']),
-                                           dataset.get('selection', {}).get('gate'), discarded)
+                                           dataset.get('selection', {}).get('gate'), discarded,
+                                           slurm.get('run_priority'))
     for run, case, content in exhausted:
         if not args.dry_run:
             ledger.set_state(run, case, 'failed', f"interrupted, {slurm['max_attempts']} submissions ({content})",

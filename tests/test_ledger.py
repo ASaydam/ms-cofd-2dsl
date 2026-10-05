@@ -178,3 +178,11 @@ def test_reserve_cases_replace_discarded_ones():
     assert active == [f"normal_circle_{i:04d}" for i in range(1, 6)]               # 0005 replaces 0002
     active = ledger.active_cases(rows, ['normal_circle_0002', 'normal_circle_0005'], per_class)
     assert active[-1] == 'normal_circle_0006' and len(active) == 6                  # a discarded reserve as well
+
+
+def test_run_priority_from_the_settings():
+    cases = ledger.case_order(manifest(1))
+    states = {('base_lu', cases[0]): ('done', 'converged 900 1')}
+    ready = ledger.ready_tasks(cases, RUNS, states, priority=['base_lu', '0.25x', 'base_fo', '16x', '4x'])
+    order = [run for run, case in ready if case == cases[0]]
+    assert order == ['base_fo', '16x', '4x']

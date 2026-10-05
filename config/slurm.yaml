@@ -46,6 +46,10 @@ status:
   branch: data
   every_min: 10
 
+# submission order of the ready runs (default in hpc/ledger.py: base_lu, 16x, 4x, base_fo, 0.25x). From 5 Oct the cheap
+# 2 mm and first-order runs of all cases go first, to see how many converge before the 0.25 mm runs continue
+run_priority: [base_lu, 0.25x, base_fo, 16x, 4x]
+
 max_attempts: 3          # submissions of a task at most (an interrupted or failed task is submitted again)
 min_interval_s: 30       # at most one topup.py call per this many seconds; a job that ends waits for its
                          # turn (or returns when a later call covered it)

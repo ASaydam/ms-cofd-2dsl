@@ -26,8 +26,8 @@ STATES = ('submitted', 'running', 'done', 'failed')
 # runs whose result another run starts from (mapFields)
 DEPENDENCIES = {'4x': 'base_lu', '16x': 'base_lu'}
 
-# submission order of the runs that are ready: the long runs first, so the last days are not spent on a tail of
-# 16x runs (base_lu is needed by the others, it is submitted as soon as it is ready anyway)
+# default submission order of the runs that are ready (run_priority of config/slurm.yaml replaces it): the long runs
+# first, so the last days are not spent on a tail of 16x runs (base_lu is needed by the others, it goes first)
 RUN_PRIORITY = ['base_lu', '16x', '4x', 'base_fo', '0.25x']
 
 
@@ -133,7 +133,7 @@ def dependencies_of(runs):
     return {run: settings['init_from'] for run, settings in runs.items() if settings.get('init_from')}
 
 
-def ready_tasks(cases, runs, states, dependencies=None, gate=None, discarded=()):
+def ready_tasks(cases, runs, states, dependencies=None, gate=None, discarded=(), priority=None):
     """
     tasks that can be submitted now, in submission order: no state yet, the run they start from is done and converged,
     and the gate run of the case (base_lu) is done and converged; nothing of a discarded case
@@ -144,11 +144,13 @@ def ready_tasks(cases, runs, states, dependencies=None, gate=None, discarded=())
     :param dependencies: {run: run it starts from}, default DEPENDENCIES (see dependencies_of)
     :param gate: run that has to converge before any other run of the case starts (selection.gate)
     :param discarded: cases without a steady solution (unsteady_cases), none of their runs is made
+    :param priority: submission order of the runs, default RUN_PRIORITY
     """
     dependencies = DEPENDENCIES if dependencies is None else dependencies
+    priority = priority or RUN_PRIORITY
     discarded = set(discarded)
     ready = []
-    for run in sorted(runs, key=lambda r: RUN_PRIORITY.index(r) if r in RUN_PRIORITY else len(RUN_PRIORITY)):
+    for run in sorted(runs, key=lambda r: priority.index(r) if r in priority else len(priority)):
         for case in cases:
             if (run, case) in states or case in discarded:
                 continue
