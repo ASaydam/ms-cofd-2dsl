@@ -291,7 +291,10 @@ class Task:
         self.attributes()
         record = self.provenance(status, exported_time)
         self.make_archive()
-        upload_archive(self.archive, self.run, self.case)
+        self.timed('upload', upload_archive, self.archive, self.run, self.case)
+        # the provenance in the results gets the time of the archive and the upload as well (the archived copy cannot)
+        record['timings_s'] = dict(self.timings)
+        (self.results / f"{self.case}_provenance.json").write_text(json.dumps(record, indent=1, default=str))
 
         shutil.rmtree(self.attributes_folder, ignore_errors=True)
         shutil.rmtree(self.folder, ignore_errors=True)

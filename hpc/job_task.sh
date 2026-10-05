@@ -54,6 +54,12 @@ if [ -n "$image_md5" ]; then
 fi
 export MSCOFD_IMAGE
 
+# one line per job in state/<run>/<case>.jobs (cost study: queue wait, whole job, failed attempts; sacct is not
+# available to users): "start <job> <node> SubmitTime=... StartTime=..." now, "end <job> <exit status> <time>" at the end
+jobs_log="$MSCOFD_DATA_ROOT/state/$run/$case.jobs"
+slurm_times=$(scontrol show job "${SLURM_JOB_ID:-0}" 2> /dev/null | grep -oE "(SubmitTime|StartTime)=[^ ]+" | tr '\n' ' ')
+echo "start ${SLURM_JOB_ID:-} $(hostname -s) ${slurm_times}$(date -Iseconds)" >> "$jobs_log"
+
 # a node where the container cannot start (e.g. "can't open /proc/self/mountinfo") would take every task submitted to
 # it: after three tries the node is written to state/bad_nodes (topup.py excludes it for bad_node_hours), this
 # submission is not counted, and the task is submitted again elsewhere. More than 5 such nodes point to a general
@@ -70,6 +76,7 @@ if [ $started -eq 0 ]; then
         attempts="$MSCOFD_DATA_ROOT/state/$run/$case.attempts"
         [ -f "$attempts" ] && echo $(( $(cat "$attempts") - 1 )) > "$attempts"
     fi
+    echo "end ${SLURM_JOB_ID:-} container $(date -Iseconds)" >> "$jobs_log"
     echo "the container does not start on $(hostname -s): $check"
     rm -rf "$lock"
     "$MSCOFD_HOST_PYTHON" "$MSCOFD_REPO/hpc/topup.py" || true
@@ -85,6 +92,7 @@ export MSCOFD_NODE_ALLOCATED
 apptainer exec --bind "$MSCOFD_BIND" --home "$MSCOFD_HOME/container/home" "$MSCOFD_IMAGE" \
     bash -c 'source /opt/mscofd/activate.sh && cd "$MSCOFD_REPO" && python -m hpc.run_task "$0" "$1"' "$run" "$case"
 status=$?
+echo "end ${SLURM_JOB_ID:-} $status $(date -Iseconds)" >> "$jobs_log"
 rm -rf "$lock"
 
 # the task sets its state; a container that did not start leaves it running, topup.py submits it again
