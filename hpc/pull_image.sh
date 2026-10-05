@@ -19,5 +19,6 @@ if [ ! -f "$image" ]; then
 fi
 echo "$image" > "$MSCOFD_HOME/container/current"
 echo "$digest" > "$MSCOFD_HOME/container/current_digest"
+md5sum "$image" | cut -d' ' -f1 > "$MSCOFD_HOME/container/current_md5"   # checks the copies on the nodes (job_task.sh)
 apptainer exec "$image" cat /opt/mscofd/versions/summary.txt
 echo "current image: $image"

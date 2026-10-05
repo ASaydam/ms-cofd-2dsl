@@ -7,6 +7,7 @@ partition: mid
 # nodes of the partition where the container cannot start (Apptainer: "can't open /proc/self/mountinfo"; dy02 and
 # dy03 are GPU nodes of the ai partition); jobs also add nodes to <data root>/state/bad_nodes, see hpc/job_task.sh
 exclude_nodes: [dy02, dy03]
+bad_node_hours: 6     # a node in state/bad_nodes is tried again after this many hours
 job_name_prefix: m2d   # job names: m2d_<run>_<case>
 
 # QoS by date: the first window whose end is still ahead is used. max_queued is the number of running + pending

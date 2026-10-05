@@ -147,13 +147,27 @@ def attempts_of(root, run, case):
     return int(path.read_text()) if path.exists() else 0
 
 
-def excluded_nodes(root, slurm):
-    """nodes the jobs must not use: exclude_nodes of config/slurm.yaml and the nodes jobs found the container
-    cannot start on (<root>/state/bad_nodes, one node per line, written by hpc/job_task.sh)"""
+def excluded_nodes(root, slurm, now=None):
+    """nodes the jobs must not use: exclude_nodes of config/slurm.yaml, and the nodes jobs found the container
+    cannot start on in the last bad_node_hours (<root>/state/bad_nodes, lines "<node> <ISO time> <error>" written by
+    hpc/job_task.sh); after that the node is tried again"""
     nodes = set(slurm.get('exclude_nodes') or [])
+    now = now or datetime.now().astimezone()
     bad = Path(root) / 'state' / 'bad_nodes'
     if bad.exists():
-        nodes.update(line.split()[0] for line in bad.read_text().splitlines() if line.strip())
+        for line in bad.read_text().splitlines():
+            fields = line.split()
+            if not fields:
+                continue
+            try:
+                stamp = fields[1]
+                if len(stamp) > 5 and stamp[-5] in '+-' and stamp[-3] != ':':
+                    stamp = stamp[:-2] + ':' + stamp[-2:]  # +0300 (date -Iseconds) -> +03:00
+                age_h = (now - datetime.fromisoformat(stamp)).total_seconds() / 3600
+            except (IndexError, ValueError, TypeError):  # no or no usable time: excluded
+                age_h = 0.0
+            if age_h < slurm.get('bad_node_hours', 6):
+                nodes.add(fields[0])
     return sorted(nodes)
 
 

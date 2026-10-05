@@ -34,14 +34,39 @@ if ! mkdir "$lock" 2> /dev/null; then
 fi
 echo "${SLURM_JOB_ID:-$$}" > "$lock/job"
 
+# the image is read from a copy on the local disk of the node (/tmp), made once per node and checked against
+# container/current_md5: many jobs reading the image file on BeeGFS saw "cannot read file data: Input/output error"
+image_md5=$(cat "$MSCOFD_HOME/container/current_md5" 2> /dev/null)
+local_image="/tmp/mscofd-$USER/$(basename "$MSCOFD_IMAGE")"
+if [ -n "$image_md5" ]; then
+    mkdir -p "/tmp/mscofd-$USER"
+    (
+        flock -x 9
+        if [ ! -f "$local_image.ok" ] || [ ! -f "$local_image" ]; then
+            rm -f "$local_image" "$local_image.ok"
+            cp "$MSCOFD_IMAGE" "$local_image.part" &&
+                [ "$(md5sum < "$local_image.part" | cut -d' ' -f1)" = "$image_md5" ] &&
+                mv "$local_image.part" "$local_image" && touch "$local_image.ok"
+            rm -f "$local_image.part"
+        fi
+    ) 9> "/tmp/mscofd-$USER/copy.lock"
+    [ -f "$local_image.ok" ] && [ -f "$local_image" ] && MSCOFD_IMAGE=$local_image
+fi
+export MSCOFD_IMAGE
+
 # a node where the container cannot start (e.g. "can't open /proc/self/mountinfo") would take every task submitted to
-# it: the node is written to state/bad_nodes (topup.py excludes those nodes), this submission is not counted, and the
-# task is submitted again elsewhere. More than 5 such nodes point to a general problem: then the task goes the normal
-# way (interrupted, submitted again up to max_attempts).
+# it: after three tries the node is written to state/bad_nodes (topup.py excludes it for bad_node_hours), this
+# submission is not counted, and the task is submitted again elsewhere. More than 5 such nodes point to a general
+# problem: then the task goes the normal way (interrupted, submitted again up to max_attempts).
 bad_nodes="$MSCOFD_DATA_ROOT/state/bad_nodes"
-if ! check=$(apptainer exec --bind "$MSCOFD_BIND" "$MSCOFD_IMAGE" true 2>&1); then
+started=0
+for try in 1 2 3; do
+    if check=$(apptainer exec --bind "$MSCOFD_BIND" "$MSCOFD_IMAGE" true 2>&1); then started=1; break; fi
+    [ $try -lt 3 ] && sleep 30
+done
+if [ $started -eq 0 ]; then
     if [ "$(wc -l < "$bad_nodes" 2> /dev/null || echo 0)" -lt 5 ]; then
-        echo "$(hostname -s) $(date -Iseconds) $(echo "$check" | grep -m1 FATAL)" >> "$bad_nodes"
+        echo "$(hostname -s) $(date -Iseconds) $(echo "$check" | grep -m1 -E "FATAL|error" | cut -c1-200)" >> "$bad_nodes"
         attempts="$MSCOFD_DATA_ROOT/state/$run/$case.attempts"
         [ -f "$attempts" ] && echo $(( $(cat "$attempts") - 1 )) > "$attempts"
     fi

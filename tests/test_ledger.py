@@ -121,8 +121,10 @@ def test_excluded_nodes(tmp_path):
     slurm, _ = topup.load_settings(tmp_path)
     assert topup.excluded_nodes(tmp_path, slurm) == ['dy02', 'dy03']
     (tmp_path / 'state').mkdir()
-    (tmp_path / 'state' / 'bad_nodes').write_text("be09 2026-10-05T03:00:00+03:00 FATAL: ...\ndy02 2026-10-05\n")
-    assert topup.excluded_nodes(tmp_path, slurm) == ['be09', 'dy02', 'dy03']
+    (tmp_path / 'state' / 'bad_nodes').write_text("be09 2026-10-05T03:00:00+0300 FATAL: ...\n"
+                                                    "da01 2026-10-05T08:53:33+0300 error\ndy02 2026-10-05\n")
+    now = datetime.fromisoformat("2026-10-05T10:00:00+03:00")
+    assert topup.excluded_nodes(tmp_path, slurm, now) == ['da01', 'dy02', 'dy03']  # be09: 7 h ago, tried again
 
 
 def test_dependencies_from_the_run_definitions():
