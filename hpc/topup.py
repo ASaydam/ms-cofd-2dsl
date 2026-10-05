@@ -44,15 +44,17 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def load_settings(root=None):
-    """config/slurm.yaml, with the top-level entries of <root>/slurm.yaml in place of its own, and config/dataset.yaml"""
-    with open(REPO / 'config' / 'slurm.yaml') as file:
-        slurm = yaml.safe_load(file)
-    if root is not None and (Path(root) / 'slurm.yaml').exists():
-        with open(Path(root) / 'slurm.yaml') as file:
-            slurm.update(yaml.safe_load(file) or {})
-    with open(REPO / 'config' / 'dataset.yaml') as file:
-        dataset = yaml.safe_load(file)
-    return slurm, dataset
+    """config/slurm.yaml and config/dataset.yaml, with the top-level entries of <root>/slurm.yaml and
+    <root>/dataset.yaml in place of their own"""
+    settings = []
+    for name in ('slurm.yaml', 'dataset.yaml'):
+        with open(REPO / 'config' / name) as file:
+            values = yaml.safe_load(file)
+        if root is not None and (Path(root) / name).exists():
+            with open(Path(root) / name) as file:
+                values.update(yaml.safe_load(file) or {})
+        settings.append(values)
+    return tuple(settings)
 
 
 def cases_file_of(root, path=None):
@@ -96,11 +98,12 @@ def our_jobs(prefix):
     return jobs, count
 
 
-def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts):
+def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependencies=None):
     """
     the tasks to submit: failed tasks and interrupted ones (their job is gone without a done / failed state) with
     submissions left, then the ready tasks (ledger.ready_tasks); a task is in only one of the lists
     :param attempts_of: function (run, case) -> number of submissions so far
+    :param dependencies: {run: run it starts from} (ledger.dependencies_of)
     :return: retry, ready, exhausted (interrupted tasks without submissions left: (run, case, marker content))
     """
     selected = set(cases)
@@ -114,7 +117,7 @@ def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts):
                 retry.append((run, case))
             elif interrupted:
                 exhausted.append((run, case, content))
-    return retry, ledger.ready_tasks(cases, runs, states), exhausted
+    return retry, ledger.ready_tasks(cases, runs, states, dependencies), exhausted
 
 
 def used_gib(root):
@@ -230,7 +233,8 @@ def top_up(root, slurm, dataset, args):
         cases = [case for case in cases if case in selected]
     states = ledger.read_states(runs, root)
     retry, ready, exhausted = select_tasks(states, jobs, cases, runs, lambda run, case: attempts_of(root, run, case),
-                                           slurm['max_attempts'])
+                                           slurm['max_attempts'],
+                                           ledger.dependencies_of(dataset['runs']))
     for run, case, content in exhausted:
         if not args.dry_run:
             ledger.set_state(run, case, 'failed', f"interrupted, {slurm['max_attempts']} submissions ({content})",

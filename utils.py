@@ -37,7 +37,9 @@ def data_root():
 
 def load_config(config_path=REPO_ROOT / 'config' / 'dataset.yaml'):
     """
-    reads the dataset configuration, the folders under "paths" are turned into absolute paths in the data root
+    reads the dataset configuration, the folders under "paths" are turned into absolute paths in the data root. A data
+    root other than the production (e.g. a validation run) can hold a dataset.yaml of its own, whose top-level entries
+    replace those of the configuration (e.g. runs)
     """
     # imported here, so the tools that do not read the configuration (e.g. extraction/check_runs.py) run without pyyaml
     import yaml
@@ -46,6 +48,9 @@ def load_config(config_path=REPO_ROOT / 'config' / 'dataset.yaml'):
         config = yaml.safe_load(file)
 
     root = data_root()
+    if (root / 'dataset.yaml').exists() and (root / 'dataset.yaml').resolve() != Path(config_path).resolve():
+        with open(root / 'dataset.yaml') as file:
+            config.update(yaml.safe_load(file) or {})
     config['paths'] = {key: root / value for key, value in config['paths'].items()}
     return config
 

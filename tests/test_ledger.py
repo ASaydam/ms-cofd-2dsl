@@ -123,3 +123,25 @@ def test_excluded_nodes(tmp_path):
     (tmp_path / 'state').mkdir()
     (tmp_path / 'state' / 'bad_nodes').write_text("be09 2026-10-05T03:00:00+03:00 FATAL: ...\ndy02 2026-10-05\n")
     assert topup.excluded_nodes(tmp_path, slurm) == ['be09', 'dy02', 'dy03']
+
+
+def test_dependencies_from_the_run_definitions():
+    runs = {'base_lu': {'resolution': 'base'}, '16x': {'resolution': '16x', 'init_from': 'base_lu'},
+            '16x_scratch': {'resolution': '16x'}}
+    dependencies = ledger.dependencies_of(runs)
+    assert dependencies == {'16x': 'base_lu'}
+    cases = ledger.case_order(manifest(1))
+    ready = ledger.ready_tasks(cases, list(runs), {}, dependencies)
+    assert ('16x_scratch', cases[0]) in ready and ('16x', cases[0]) not in ready
+    assert ready[-1][0] == '16x_scratch'  # runs that are not in RUN_PRIORITY come last
+
+
+def test_data_root_dataset_overlay(tmp_path, monkeypatch):
+    import utils
+
+    monkeypatch.setenv('MSCOFD_DATA_ROOT', str(tmp_path))
+    assert 'init_from' in utils.load_config()['runs']['16x']
+    (tmp_path / 'dataset.yaml').write_text("runs:\n  16x_scratch: {resolution: 16x, templates: second-order}\n")
+    config = utils.load_config()
+    assert list(config['runs']) == ['16x_scratch']
+    assert config['paths']['manifest'] == tmp_path / 'geometry' / 'manifest.csv'

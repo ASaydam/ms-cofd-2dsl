@@ -128,20 +128,27 @@ def read_manifest(path):
         return list(csv.DictReader(file))
 
 
-def ready_tasks(cases, runs, states):
+def dependencies_of(runs):
+    """{run: run it starts from} of the runs block of config/dataset.yaml (init_from)"""
+    return {run: settings['init_from'] for run, settings in runs.items() if settings.get('init_from')}
+
+
+def ready_tasks(cases, runs, states, dependencies=None):
     """
     tasks that can be submitted now, in submission order: no state yet and the run they start from is done
     :param cases: case names in case_order
-    :param runs: runs of config/dataset.yaml
+    :param runs: runs of config/dataset.yaml (runs not in RUN_PRIORITY come last)
     :param states: read_states(); a task with any state is not ready (failed and interrupted tasks are submitted
                    again by the caller)
+    :param dependencies: {run: run it starts from}, default DEPENDENCIES (see dependencies_of)
     """
+    dependencies = DEPENDENCIES if dependencies is None else dependencies
     ready = []
-    for run in sorted(runs, key=RUN_PRIORITY.index):
+    for run in sorted(runs, key=lambda r: RUN_PRIORITY.index(r) if r in RUN_PRIORITY else len(RUN_PRIORITY)):
         for case in cases:
             if (run, case) in states:
                 continue
-            source = DEPENDENCIES.get(run)
+            source = dependencies.get(run)
             if source and states.get((source, case), ('',))[0] != 'done':
                 continue
             ready.append((run, case))
