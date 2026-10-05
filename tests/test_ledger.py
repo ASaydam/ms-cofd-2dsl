@@ -113,3 +113,13 @@ def test_directory_lock(tmp_path):
     with ledger.DirectoryLock(path, stale_s=600):
         assert (path / 'holder').exists()
     assert not path.exists() and not list(tmp_path.glob('*.stale.*'))
+
+
+def test_excluded_nodes(tmp_path):
+    from hpc import topup
+
+    slurm, _ = topup.load_settings(tmp_path)
+    assert topup.excluded_nodes(tmp_path, slurm) == ['dy02', 'dy03']
+    (tmp_path / 'state').mkdir()
+    (tmp_path / 'state' / 'bad_nodes').write_text("be09 2026-10-05T03:00:00+03:00 FATAL: ...\ndy02 2026-10-05\n")
+    assert topup.excluded_nodes(tmp_path, slurm) == ['be09', 'dy02', 'dy03']

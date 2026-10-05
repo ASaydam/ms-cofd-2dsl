@@ -143,15 +143,27 @@ def attempts_of(root, run, case):
     return int(path.read_text()) if path.exists() else 0
 
 
+def excluded_nodes(root, slurm):
+    """nodes the jobs must not use: exclude_nodes of config/slurm.yaml and the nodes jobs found the container
+    cannot start on (<root>/state/bad_nodes, one node per line, written by hpc/job_task.sh)"""
+    nodes = set(slurm.get('exclude_nodes') or [])
+    bad = Path(root) / 'state' / 'bad_nodes'
+    if bad.exists():
+        nodes.update(line.split()[0] for line in bad.read_text().splitlines() if line.strip())
+    return sorted(nodes)
+
+
 def submit(root, slurm, window, run, case, dry_run):
     settings = slurm['runs'][run]
     logs = root / 'logs' / run
     logs.mkdir(parents=True, exist_ok=True)
+    exclude = excluded_nodes(root, slurm)
     command = ['sbatch', '--parsable', f"--job-name={slurm['job_name_prefix']}_{run}__{case}",
                f"--account={slurm['account']}", f"--partition={slurm['partition']}", f"--qos={window['qos']}",
                '--ntasks=1', '--cpus-per-task=1', f"--mem={settings['mem']}", f"--time={settings['time']}",
-               '--requeue', f"--output={logs / (case + '-%j.out')}", '--export=ALL',
-               str(REPO / 'hpc' / 'job_task.sh'), run, case]
+               '--requeue', f"--output={logs / (case + '-%j.out')}", '--export=ALL'] + \
+              ([f"--exclude={','.join(exclude)}"] if exclude else []) + \
+              [str(REPO / 'hpc' / 'job_task.sh'), run, case]
     if dry_run:
         print(' '.join(command))
         return

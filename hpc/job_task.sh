@@ -34,6 +34,23 @@ if ! mkdir "$lock" 2> /dev/null; then
 fi
 echo "${SLURM_JOB_ID:-$$}" > "$lock/job"
 
+# a node where the container cannot start (e.g. "can't open /proc/self/mountinfo") would take every task submitted to
+# it: the node is written to state/bad_nodes (topup.py excludes those nodes), this submission is not counted, and the
+# task is submitted again elsewhere. More than 5 such nodes point to a general problem: then the task goes the normal
+# way (interrupted, submitted again up to max_attempts).
+bad_nodes="$MSCOFD_DATA_ROOT/state/bad_nodes"
+if ! check=$(apptainer exec --bind "$MSCOFD_BIND" "$MSCOFD_IMAGE" true 2>&1); then
+    if [ "$(wc -l < "$bad_nodes" 2> /dev/null || echo 0)" -lt 5 ]; then
+        echo "$(hostname -s) $(date -Iseconds) $(echo "$check" | grep -m1 FATAL)" >> "$bad_nodes"
+        attempts="$MSCOFD_DATA_ROOT/state/$run/$case.attempts"
+        [ -f "$attempts" ] && echo $(( $(cat "$attempts") - 1 )) > "$attempts"
+    fi
+    echo "the container does not start on $(hostname -s): $check"
+    rm -rf "$lock"
+    "$MSCOFD_HOST_PYTHON" "$MSCOFD_REPO/hpc/topup.py" || true
+    exit 1
+fi
+
 "$MSCOFD_HOST_PYTHON" "$MSCOFD_REPO/hpc/ledger.py" set "$run" "$case" running "${SLURM_JOB_ID:-} $(hostname -s)"
 
 # CPUs of the node allocated when the task starts (for the cost study: how many jobs shared the node)
