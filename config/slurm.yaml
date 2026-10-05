@@ -10,24 +10,27 @@ exclude_nodes: [dy02, dy03]
 job_name_prefix: m2d   # job names: m2d_<run>_<case>
 
 # QoS by date: the first window whose end is still ahead is used. max_queued is the number of running + pending
-# jobs topup.py keeps (below the hard limit of the QoS, so the other users' view of the queue stays reasonable).
+# jobs topup.py keeps: below the limits of the account (150 running, 300 running + pending, shared with validation
+# runs), so the other users' view of the queue stays reasonable.
 windows:
   - qos: asaydam_oct26
     start: "2026-10-05T00:00:00+03:00"
     end: "2026-10-19T00:00:00+03:00"
-    max_queued: 280
+    max_queued: 240
   - qos: users
     start: "2026-01-01T00:00:00+03:00"
     end: "2027-12-31T00:00:00+03:00"
     max_queued: 45
 
-# time and memory per run, set from the pilot (an interrupted job is submitted again and continues the run)
+# time and memory per run, from the pilots (an interrupted job is submitted again and continues the run). Solver
+# alone (peak resident memory, longest converged run): 0.25x 45 MB / 0.1 h, base 90 MB / 0.6 h at the iteration cap,
+# 4x 264 MB / 0.7 h, 16x 942 MB / 4.7 h; meshing (gmsh) and the arrays (VTK) add to the memory
 runs:
-  0.25x:   {time: "01:00:00", mem: 2G}
-  base_fo: {time: "01:00:00", mem: 2G}
-  base_lu: {time: "01:00:00", mem: 2G}
-  4x:      {time: "06:00:00", mem: 3G}
-  16x:     {time: "20:00:00", mem: 6G}
+  0.25x:   {time: "02:00:00", mem: 1G}
+  base_fo: {time: "02:00:00", mem: 1G}
+  base_lu: {time: "02:00:00", mem: 1G}
+  4x:      {time: "03:00:00", mem: 2G}
+  16x:     {time: "12:00:00", mem: 4G}
 
 # footprint guard (the user quota is 1 TiB): submissions pause above these values (GiB). /scratch is BeeGFS with
 # buddy mirroring: the quota usage (beegfs-ctl) counts every file twice, so 600 GiB used is ~300 GiB of data.

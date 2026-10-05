@@ -25,7 +25,7 @@ def test_fine_runs_wait_for_base_lu():
     assert {run for run, _ in ready} == {'base_lu', 'base_fo'}
     assert ready[0][0] == 'base_lu'
 
-    states = {('base_lu', cases[0]): ('done', '')}
+    states = {('base_lu', cases[0]): ('done', 'converged 900 123')}
     ready = ledger.ready_tasks(cases, RUNS, states)
     assert ('16x', cases[0]) in ready and ('4x', cases[0]) in ready
     assert ('16x', cases[1]) not in ready and ('base_lu', cases[0]) not in ready
@@ -84,7 +84,7 @@ def test_select_tasks_lists_a_task_once():
 
     cases = ledger.case_order(manifest(1))
     first, second = cases[0], cases[1]
-    states = {('base_lu', first): ('done', ''), ('base_lu', second): ('done', ''),
+    states = {('base_lu', first): ('done', 'converged 900 1'), ('base_lu', second): ('done', 'converged 800 2'),
               ('16x', first): ('failed', 'gmsh failed'),         # failed, submissions left
               ('4x', first): ('running', '120 be01'),           # its job is gone: interrupted
               ('16x', second): ('submitted', '121 attempt=1')}  # its job is in the queue
@@ -145,3 +145,12 @@ def test_data_root_dataset_overlay(tmp_path, monkeypatch):
     config = utils.load_config()
     assert list(config['runs']) == ['16x_scratch']
     assert config['paths']['manifest'] == tmp_path / 'geometry' / 'manifest.csv'
+
+
+def test_no_fine_runs_without_a_steady_solution():
+    cases = ledger.case_order(manifest(1))
+    states = {('base_lu', cases[0]): ('done', 'end_time 10000 123'), ('base_lu', cases[1]): ('done', 'converged 800 124')}
+    ready = ledger.ready_tasks(cases, RUNS, states)
+    assert ('16x', cases[0]) not in ready and ('4x', cases[0]) not in ready
+    assert ('16x', cases[1]) in ready and ('base_fo', cases[0]) in ready
+    assert ledger.unsteady_cases(states) == [cases[0]]

@@ -37,6 +37,21 @@ and hold it for 0.3 s.
 **Result (2026-10-04): passed**, 40 holds, no overlap. (Found in the pilot: with `flock`, `hpc/topup.py` calls of
 jobs ending on different nodes ran at the same time and submitted six tasks two to four times.)
 
+## 3. Pilots of the 360 x 120 mm domain (2026-10-04/05)
+
+Three pilots with the production pipeline, each on the obstacles at the extremes of blockage, rotation and position
+(plus the obstacles closest to the blockage limit), run on the cluster with the temporary allocation.
+
+| Pilot | Geometry | 1 mm, second order (base_lu) | Finding |
+|---|---|---|---|
+| 1 | 45 obstacles, larger class 1.35x, no blockage limit | 37 of 45 converged; all 30 below a blockage of 0.47 converged, 8 of 15 from 0.47 to 0.76 did not (residuals stuck at 1e-3 to 1e-2) | No steady solution above a gap Reynolds number of ~105; these obstacles also caused reverse flow at the outlet (4 cases). Blockage limit introduced |
+| 2 | 24 obstacles at a limit of 0.45, larger class 1.3x | 18 of 24 converged; the 6 others at a blockage of 0.448 to 0.450, mostly triangles | Limit lowered to 0.40; no reverse flow at the outlet |
+| 3 | 30 obstacles at the 0.40 limit | all converged except 4 short, blunt left triangles (normal size, blockage 0.397 to 0.400) | Such cases are flagged and replaced from reserve geometries |
+
+Also found and fixed in the pilots: a folded 0.25 mm mesh (remeshing with gmsh option variants), two nodes where the
+container cannot start (excluded), duplicate jobs from locks that do not hold across nodes (mkdir locks). The 0.5
+and 0.25 mm runs converged in every pilot case whose 1 mm run converged. Resources: see docs/decisions.md.
+
 ## Planned
 
 - VTK resampling (`extraction/resample_vtk.py`) against ParaView's Resample To Image on the same OpenFOAM results.

@@ -135,7 +135,8 @@ def dependencies_of(runs):
 
 def ready_tasks(cases, runs, states, dependencies=None):
     """
-    tasks that can be submitted now, in submission order: no state yet and the run they start from is done
+    tasks that can be submitted now, in submission order: no state yet and the run they start from is done and
+    converged (a run that stopped at its iteration cap has no steady solution to start from, see unsteady_cases)
     :param cases: case names in case_order
     :param runs: runs of config/dataset.yaml (runs not in RUN_PRIORITY come last)
     :param states: read_states(); a task with any state is not ready (failed and interrupted tasks are submitted
@@ -149,10 +150,25 @@ def ready_tasks(cases, runs, states, dependencies=None):
             if (run, case) in states:
                 continue
             source = dependencies.get(run)
-            if source and states.get((source, case), ('',))[0] != 'done':
+            if source and not converged(states.get((source, case))):
                 continue
             ready.append((run, case))
     return ready
+
+
+def converged(state):
+    """True for the state of a task that is done and converged (done marker "converged <iterations> <job id>")"""
+    return bool(state) and state[0] == 'done' and state[1].startswith('converged')
+
+
+def unsteady_cases(states, dependencies=None):
+    """
+    cases whose run that other runs start from (base_lu) is done without converging: it stopped at its iteration
+    cap, there is no steady solution to start the finer meshes from; those are not run, the case is flagged
+    """
+    sources = set((DEPENDENCIES if dependencies is None else dependencies).values())
+    return sorted({case for (run, case), state in states.items()
+                   if run in sources and state[0] == 'done' and not converged(state)})
 
 
 def main():

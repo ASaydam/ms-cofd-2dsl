@@ -27,13 +27,13 @@ def main():
     parser.add_argument("--failures", type=int, default=5, help="number of failures to list")
     args = parser.parse_args()
 
-    slurm, dataset = topup.load_settings()
     root = ledger.data_root()
-    runs = list(dataset['runs'])
+    slurm, dataset = topup.load_settings(root)
+    runs = [run for run in dataset['runs'] if run in slurm.get('only_runs', dataset['runs'])]
     manifest_path = root / 'geometry' / 'manifest.csv'
     cases = len(ledger.read_manifest(manifest_path)) if manifest_path.exists() else 0
     states = ledger.read_states(runs, root)
-    jobs = topup.our_jobs(slurm['job_name_prefix'])
+    jobs, _ = topup.our_jobs(slurm['job_name_prefix'])
     window = topup.current_window(slurm)
 
     print(f"{datetime.now():%Y-%m-%d %H:%M}  data root {root}  ({cases} cases)")
@@ -65,6 +65,11 @@ def main():
     seeds = root / 'seeds'
     if seeds.exists():
         print(f"base_lu solutions kept for the fine runs: {sum(1 for _ in seeds.iterdir())}")
+
+    unsteady = ledger.unsteady_cases(states, ledger.dependencies_of(dataset['runs']))
+    if unsteady:
+        print(f"\n{len(unsteady)} cases without a steady solution (base_lu at its iteration cap, finer meshes not run): "
+              f"{', '.join(unsteady[:10])}{' ...' if len(unsteady) > 10 else ''}")
 
     failed = [(run, case, content) for (run, case), (state, content) in states.items() if state == 'failed']
     if failed and args.failures:

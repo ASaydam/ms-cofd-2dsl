@@ -245,11 +245,16 @@ def top_up(root, slurm, dataset, args):
     candidates = retry + ready
     submitted = 0
     for run, case in candidates[:max(free, 0)]:
-        submit(root, slurm, window, run, case, args.dry_run)
+        try:
+            submit(root, slurm, window, run, case, args.dry_run)
+        except subprocess.CalledProcessError as error:  # e.g. the submission limit of the account is reached
+            print(f"sbatch refused {run} {case}: {(error.stderr or '').strip()}; no more submissions this time")
+            break
         submitted += 1
+    unsteady = ledger.unsteady_cases(states, ledger.dependencies_of(dataset['runs']))
     print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {queued} queued, {submitted} submitted "
           f"({len(retry)} again), {len(candidates) - submitted} ready and waiting; {used:.0f} GiB used, "
-          f"{backlog:.1f} GiB not uploaded")
+          f"{backlog:.1f} GiB not uploaded; {len(unsteady)} cases without a steady solution")
 
 
 if __name__ == "__main__":
