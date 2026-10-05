@@ -156,3 +156,25 @@ def test_no_fine_runs_without_a_steady_solution():
     assert ('16x', cases[0]) not in ready and ('4x', cases[0]) not in ready
     assert ('16x', cases[1]) in ready and ('base_fo', cases[0]) in ready
     assert ledger.unsteady_cases(states) == [cases[0]]
+
+
+def test_gate_and_discarded_cases():
+    cases = ledger.case_order(manifest(1))
+    states = {('base_lu', cases[0]): ('done', 'converged 900 1'), ('base_lu', cases[1]): ('done', 'end_time 10000 2')}
+    discarded = ledger.unsteady_cases(states, ['base_lu'])
+    assert discarded == [cases[1]]
+    ready = ledger.ready_tasks(cases, RUNS, states, gate='base_lu', discarded=discarded)
+    assert ('base_fo', cases[0]) in ready and ('16x', cases[0]) in ready
+    assert not [task for task in ready if task[1] == cases[1]]                    # nothing of a discarded case
+    assert ('base_fo', cases[2]) not in ready and ('base_lu', cases[2]) in ready  # waits for its base_lu
+
+
+def test_reserve_cases_replace_discarded_ones():
+    rows = [{'case_name': f"normal_circle_{i:04d}", 'size': 'normal', 'geometry': 'circle', 'index': str(i)}
+            for i in range(1, 7)]                                                  # 4 cases + 2 reserves
+    per_class = {'normal': 4}
+    assert ledger.active_cases(rows, [], per_class) == [f"normal_circle_{i:04d}" for i in range(1, 5)]
+    active = ledger.active_cases(rows, ['normal_circle_0002'], per_class)
+    assert active == [f"normal_circle_{i:04d}" for i in range(1, 6)]               # 0005 replaces 0002
+    active = ledger.active_cases(rows, ['normal_circle_0002', 'normal_circle_0005'], per_class)
+    assert active[-1] == 'normal_circle_0006' and len(active) == 6                  # a discarded reserve as well

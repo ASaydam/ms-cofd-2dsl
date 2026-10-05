@@ -25,6 +25,13 @@ from openfoam.create_foam import create_foam
 
 
 def run_geometry(config, args):
+    if args.reserve:  # the reserve cases after the regular ones of every size and geometry
+        for size in args.sizes:
+            first = config['cases_per_geometry'][size] + 1
+            rows = create_geo(config, [size], args.geometries, args.resolutions, start=first,
+                              end=first + config['reserve_per_geometry'] - 1)
+            update_manifest(rows, config['paths']['manifest'])
+        return
     rows = create_geo(config, args.sizes, args.geometries, args.resolutions, start=args.start, end=args.end)
     update_manifest(rows, config['paths']['manifest'])
 
@@ -71,6 +78,8 @@ def main():
     geometry.add_argument("--start", type=int, default=1, help="first case number")
     geometry.add_argument("--end", type=int, default=None,
                           help="last case number (default: cases_per_geometry of config/dataset.yaml)")
+    geometry.add_argument("--reserve", action="store_true",
+                          help="write the reserve cases (reserve_per_geometry after cases_per_geometry)")
 
     mesh = argparse.ArgumentParser(add_help=False)
     mesh.add_argument("--workers", type=int, default=None, help="meshes created at the same time")

@@ -43,6 +43,12 @@ cases_per_geometry:
   normal: 300
   smaller: 300
   larger: 300
+# reserve cases per size and geometry (index 301 on, same seed; python main.py geometry --reserve): a case without a
+# steady solution is dropped with all its runs and replaced by the next reserve case (hpc/ledger.py active_cases)
+reserve_per_geometry: 30
+selection:
+  gate: base_lu                         # no other run of a case starts before this run converged
+  discard_if_not_converged: [base_lu]   # a case is dropped when one of these runs stops at its iteration cap
 
 # Obstacle sizes, one sampling scheme for all sizes:
 #   width  = nominal width  * scale * (1 + uniform(-width_jitter,  width_jitter))

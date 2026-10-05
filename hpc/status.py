@@ -53,20 +53,20 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
     and BeeGFS)"""
     now = now or datetime.now().astimezone()
     runs = [run for run in dataset['runs'] if run in slurm.get('only_runs', dataset['runs'])]
-    manifest_path = root / 'geometry' / 'manifest.csv'
-    cases = len(ledger.read_manifest(manifest_path)) if manifest_path.exists() else 0
     states = ledger.read_states(runs, root)
     if jobs is None:
         jobs, _ = topup.our_jobs(slurm['job_name_prefix'])
-    dependencies = ledger.dependencies_of(dataset['runs'])
-    unsteady = ledger.unsteady_cases(states, dependencies)
+    active, unsteady, reserves = topup.dataset_cases(root, dataset, states, topup.cases_file_of(root))
+    members = set(active) - set(unsteady)      # the cases of the dataset
+    cases = len(members)
 
     status = {'generated': now.isoformat(timespec='seconds'), 'cases': cases, 'runs': [], 'unsteady': unsteady,
+              'reserves': len(reserves),
               'window': (topup.current_window(slurm, now) or {}).get('qos', 'none'),
               'queue': {'running': sum(s == 'RUNNING' for _, s, _ in jobs.values()),
                         'pending': sum(s == 'PENDING' for _, s, _ in jobs.values())}}
     for run in runs:
-        counts = Counter(state for (r, _), (state, _) in states.items() if r == run)
+        counts = Counter(state for (r, c), (state, _) in states.items() if r == run and c in members)
         summary = root / 'results' / run / 'summary.csv'
         rows = list(csv.DictReader(open(summary))) if summary.exists() else []
         hours = sum(float(row['execution_time_s'] or 0) for row in rows) / 3600
@@ -74,7 +74,7 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
         queued = Counter(s for (r, _), (_, s, _) in jobs.items() if r == run)
         status['runs'].append({
             'run': run, 'label': LABELS.get(run, run),
-            'target': cases - len(unsteady) if run in dependencies else cases,
+            'target': cases,
             'done': counts['done'], 'running': queued['RUNNING'], 'pending': queued['PENDING'],
             'submitted': counts['submitted'], 'failed': counts['failed'],
             'end_time': sum(row['status'] == 'end_time' for row in rows),
@@ -129,7 +129,8 @@ def main():
 
     unsteady = status['unsteady']
     if unsteady:
-        print(f"\n{len(unsteady)} cases without a steady solution (base_lu at its iteration cap, finer meshes not run): "
+        print(f"\n{len(unsteady)} cases without a steady solution (base_lu at its iteration cap; dropped with all runs, "
+              f"{status['reserves']} reserve cases in use): "
               f"{', '.join(unsteady[:10])}{' ...' if len(unsteady) > 10 else ''}")
     if status['failures'] and args.failures:
         print(f"\nfailures (last {len(status['failures'])}):")

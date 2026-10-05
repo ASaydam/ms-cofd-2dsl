@@ -133,21 +133,26 @@ def dependencies_of(runs):
     return {run: settings['init_from'] for run, settings in runs.items() if settings.get('init_from')}
 
 
-def ready_tasks(cases, runs, states, dependencies=None):
+def ready_tasks(cases, runs, states, dependencies=None, gate=None, discarded=()):
     """
-    tasks that can be submitted now, in submission order: no state yet and the run they start from is done and
-    converged (a run that stopped at its iteration cap has no steady solution to start from, see unsteady_cases)
+    tasks that can be submitted now, in submission order: no state yet, the run they start from is done and converged,
+    and the gate run of the case (base_lu) is done and converged; nothing of a discarded case
     :param cases: case names in case_order
     :param runs: runs of config/dataset.yaml (runs not in RUN_PRIORITY come last)
     :param states: read_states(); a task with any state is not ready (failed and interrupted tasks are submitted
                    again by the caller)
     :param dependencies: {run: run it starts from}, default DEPENDENCIES (see dependencies_of)
+    :param gate: run that has to converge before any other run of the case starts (selection.gate)
+    :param discarded: cases without a steady solution (unsteady_cases), none of their runs is made
     """
     dependencies = DEPENDENCIES if dependencies is None else dependencies
+    discarded = set(discarded)
     ready = []
     for run in sorted(runs, key=lambda r: RUN_PRIORITY.index(r) if r in RUN_PRIORITY else len(RUN_PRIORITY)):
         for case in cases:
-            if (run, case) in states:
+            if (run, case) in states or case in discarded:
+                continue
+            if gate and run != gate and not converged(states.get((gate, case))):
                 continue
             source = dependencies.get(run)
             if source and not converged(states.get((source, case))):
@@ -161,14 +166,38 @@ def converged(state):
     return bool(state) and state[0] == 'done' and state[1].startswith('converged')
 
 
-def unsteady_cases(states, dependencies=None):
+def unsteady_cases(states, runs=('base_lu',)):
     """
-    cases whose run that other runs start from (base_lu) is done without converging: it stopped at its iteration
-    cap, there is no steady solution to start the finer meshes from; those are not run, the case is flagged
+    cases with a run of runs (selection.discard_if_not_converged) done without converging: it stopped at its
+    iteration cap, there is no steady solution; the case is discarded with all its runs and replaced by a reserve
+    case (active_cases)
     """
-    sources = set((DEPENDENCIES if dependencies is None else dependencies).values())
     return sorted({case for (run, case), state in states.items()
-                   if run in sources and state[0] == 'done' and not converged(state)})
+                   if run in runs and state[0] == 'done' and not converged(state)})
+
+
+def active_cases(manifest_rows, discarded, per_class):
+    """
+    the cases of the dataset: for every size and geometry the cases in index order until per_class of them are not
+    discarded, i.e. the first per_class cases (index 1 to 300) and one reserve case (index 301, 302, ...) for every
+    discarded one, which can be discarded in turn
+    :param discarded: unsteady_cases
+    :param per_class: cases_per_geometry of config/dataset.yaml, {size: number}
+    :return: the active case names in case_order (discarded ones included, they are skipped by ready_tasks)
+    """
+    discarded = set(discarded)
+    classes = {}
+    for row in manifest_rows:
+        classes.setdefault((row['size'], row['geometry']), []).append(row)
+    active = set()
+    for (size, _), rows in classes.items():
+        kept = 0
+        for row in sorted(rows, key=lambda r: int(r['index'])):
+            if kept >= per_class[size]:
+                break
+            active.add(row['case_name'])
+            kept += row['case_name'] not in discarded
+    return [case for case in case_order(manifest_rows) if case in active]
 
 
 def main():

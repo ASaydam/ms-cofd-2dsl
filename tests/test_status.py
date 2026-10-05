@@ -27,15 +27,15 @@ def test_collect_and_history_row(tmp_path):
     result = status.collect(tmp_path, slurm, dataset, jobs=jobs, nodes={'be01': 1}, used=100.0, backlog=0.0, now=now)
 
     runs = {r['run']: r for r in result['runs']}
-    assert result['unsteady'] == [names[1]] and result['cases'] == 3
-    assert runs['base_lu']['done'] == 2 and runs['base_lu']['running'] == 1 and runs['base_lu']['target'] == 3
-    assert runs['16x']['target'] == 2 and runs['16x']['failed'] == 1          # no 16x for the unsteady case
+    assert result['unsteady'] == [names[1]] and result['cases'] == 2           # the unsteady case is dropped
+    assert runs['base_lu']['done'] == 1 and runs['base_lu']['running'] == 1 and runs['base_lu']['target'] == 2
+    assert runs['16x']['target'] == 2 and runs['16x']['failed'] == 1 and result['reserves'] == 0
     assert runs['base_lu']['done_1h'] == 1 and runs['base_lu']['done_24h'] == 2
     assert runs['base_lu']['core_hours'] == 0.65 and runs['base_lu']['end_time'] == 1
     assert result['failures'][0]['case'] == names[0] and result['interrupted'] == 0
 
     row = publish_status.history_row(result)
-    assert row['done_base_lu'] == 2 and row['unsteady'] == 1 and row['running'] == 1
+    assert row['done_base_lu'] == 1 and row['unsteady'] == 1 and row['running'] == 1
 
 
 def test_parse_time():

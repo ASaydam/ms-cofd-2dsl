@@ -98,15 +98,36 @@ def our_jobs(prefix):
     return jobs, count
 
 
-def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependencies=None):
+def dataset_cases(root, dataset, states, cases_file=None):
+    """
+    the cases to run (ledger.active_cases: 300 per size and geometry, a reserve case for every discarded one), in
+    case_order and limited to the cases file of a pilot; the discarded cases (selection.discard_if_not_converged
+    stopped at the iteration cap) and the reserve cases in use
+    """
+    selection = dataset.get('selection', {})
+    discarded = ledger.unsteady_cases(states, selection.get('discard_if_not_converged', []))
+    manifest = ledger.read_manifest(Path(root) / 'geometry' / 'manifest.csv')
+    cases = ledger.active_cases(manifest, discarded, dataset['cases_per_geometry'])
+    if cases_file:
+        selected = set(Path(cases_file).read_text().split())
+        cases = [case for case in cases if case in selected]
+    active = set(cases)
+    reserves = [row['case_name'] for row in manifest if row['case_name'] in active
+                and int(row['index']) > dataset['cases_per_geometry'][row['size']]]
+    return cases, discarded, reserves
+
+
+def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependencies=None, gate=None, discarded=()):
     """
     the tasks to submit: failed tasks and interrupted ones (their job is gone without a done / failed state) with
-    submissions left, then the ready tasks (ledger.ready_tasks); a task is in only one of the lists
+    submissions left, then the ready tasks (ledger.ready_tasks); a task is in only one of the lists; nothing of a
+    discarded case
     :param attempts_of: function (run, case) -> number of submissions so far
     :param dependencies: {run: run it starts from} (ledger.dependencies_of)
+    :param gate, discarded: see ledger.ready_tasks
     :return: retry, ready, exhausted (interrupted tasks without submissions left: (run, case, marker content))
     """
-    selected = set(cases)
+    selected = set(cases) - set(discarded)
     retry, exhausted = [], []
     for (run, case), (state, content) in states.items():
         if case not in selected:
@@ -117,7 +138,7 @@ def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependenc
                 retry.append((run, case))
             elif interrupted:
                 exhausted.append((run, case, content))
-    return retry, ledger.ready_tasks(cases, runs, states, dependencies), exhausted
+    return retry, ledger.ready_tasks(cases, runs, states, dependencies, gate, discarded), exhausted
 
 
 def used_gib(root):
@@ -242,16 +263,11 @@ def top_up(root, slurm, dataset, args):
 
     # 4. interrupted and failed tasks
     runs = [run for run in dataset['runs'] if run in slurm.get('only_runs', dataset['runs'])]
-    manifest = ledger.read_manifest(root / 'geometry' / 'manifest.csv')
-    cases = ledger.case_order(manifest)
-    cases_file = cases_file_of(root, args.cases)
-    if cases_file:
-        selected = set(Path(cases_file).read_text().split())
-        cases = [case for case in cases if case in selected]
     states = ledger.read_states(runs, root)
+    cases, discarded, reserves = dataset_cases(root, dataset, states, cases_file_of(root, args.cases))
     retry, ready, exhausted = select_tasks(states, jobs, cases, runs, lambda run, case: attempts_of(root, run, case),
-                                           slurm['max_attempts'],
-                                           ledger.dependencies_of(dataset['runs']))
+                                           slurm['max_attempts'], ledger.dependencies_of(dataset['runs']),
+                                           dataset.get('selection', {}).get('gate'), discarded)
     for run, case, content in exhausted:
         if not args.dry_run:
             ledger.set_state(run, case, 'failed', f"interrupted, {slurm['max_attempts']} submissions ({content})",
@@ -268,10 +284,10 @@ def top_up(root, slurm, dataset, args):
             print(f"sbatch refused {run} {case}: {(error.stderr or '').strip()}; no more submissions this time")
             break
         submitted += 1
-    unsteady = ledger.unsteady_cases(states, ledger.dependencies_of(dataset['runs']))
     print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {queued} queued, {submitted} submitted "
           f"({len(retry)} again), {len(candidates) - submitted} ready and waiting; {used:.0f} GiB used, "
-          f"{backlog:.1f} GiB not uploaded; {len(unsteady)} cases without a steady solution")
+          f"{backlog:.1f} GiB not uploaded; {len(discarded)} cases without a steady solution, "
+          f"{len(reserves)} reserve cases in use")
 
 
 if __name__ == "__main__":

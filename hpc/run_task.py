@@ -137,10 +137,32 @@ class Task:
                                              '-mapMethod', 'cellPointInterpolate'], 'log.mapFields')
         (self.folder / 'mapped').write_text(f"{self.seed}\n")
 
+    def end_time_override(self):
+        """
+        endTime of this run of this case from <data root>/iterations.txt (lines "<run> <case> <endTime>"), to let a
+        slowly converging run go on beyond the cap of its template; None when the case is not listed
+        """
+        path = ledger.data_root() / 'iterations.txt'
+        if path.exists():
+            for line in path.read_text().splitlines():
+                fields = line.split()
+                if len(fields) == 3 and fields[:2] == [self.run, self.case]:
+                    return int(fields[2])
+        return None
+
     def solve(self):
-        """step 4: simpleFoam, continued from the latest time step when the case was started before"""
+        """
+        step 4: simpleFoam, continued from the latest time step when the case was started before, also after it
+        stopped at the cap of its template when iterations.txt sets a higher one
+        """
+        end_time = self.end_time_override()
+        if end_time:
+            self.shell(['foamDictionary', 'system/controlDict', '-entry', 'endTime', '-set', str(end_time)],
+                       'log.foamDictionary.endTime')
         status = check_case(self.folder)
-        if status['status'] in ('converged', 'end_time'):
+        raised = (status['status'] == 'end_time' and end_time is not None
+                  and float(status.get('last_iteration') or 0) < end_time)
+        if status['status'] in ('converged', 'end_time') and not raised:
             return status
         continued = (self.folder / 'log.simpleFoam').exists()
         if continued:
@@ -223,6 +245,7 @@ class Task:
             'mesh_ok': status.get('mesh_ok'), 'cells': cells, 'exported_time': exported_time,
             'mesh_variant': (self.folder / 'mesh_variant').read_text().strip()
             if (self.folder / 'mesh_variant').exists() else '',
+            'end_time_override': self.end_time_override(),
             'peak_memory_kb': max(peaks) if peaks else None, 'timings_s': self.timings,
             'host': platform.node().split('.')[0], 'cpu_model': cpu,
             'node_cpus_allocated': os.environ.get('MSCOFD_NODE_ALLOCATED', ''),
