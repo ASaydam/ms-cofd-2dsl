@@ -49,8 +49,9 @@ Three pilots with the production pipeline, each on the obstacles at the extremes
 | 3 | 30 obstacles at the 0.40 limit | all converged except 4 short, blunt left triangles (normal size, blockage 0.397 to 0.400) | Such cases are flagged and replaced from reserve geometries |
 
 Also found and fixed in the pilots: a folded 0.25 mm mesh (remeshing with gmsh option variants), two nodes where the
-container cannot start (excluded), duplicate jobs from locks that do not hold across nodes (mkdir locks). The 0.5
-and 0.25 mm runs converged in every pilot case whose 1 mm run converged. Resources: see docs/decisions.md.
+container cannot start (excluded), duplicate jobs from locks that do not hold across nodes (mkdir locks). In every
+finished pilot case whose 1 mm run converged, the 0.5 and 0.25 mm runs converged too (pilot 1, by 5 Oct 04:30:
+36 at 0.5 mm, 12 at 0.25 mm). Resources: see docs/decisions.md.
 
 ## Planned
 
@@ -58,5 +59,6 @@ and 0.25 mm runs converged in every pilot case whose 1 mm run converged. Resourc
 - DFG 2D-1 benchmark (Schäfer & Turek 1996, confined cylinder, Re = 20) with the production settings on three meshes:
   drag coefficient 5.57–5.59, lift coefficient 0.0104–0.0110, pressure difference 0.1172–0.1176, recirculation
   length 0.0842–0.0852.
-- Pilot of the 360 × 120 mm domain: 45 geometries (the largest blockage, rotation and downstream shift of every size
-  and family), all five runs; convergence, cost, memory, reverse flow at the outlet, the whole chain to the archive.
+- Initialization check (running): 6 cases (4 nearly symmetric and centred obstacles near the blockage limit, 2
+  ordinary ones) solved on the 0.5 and 0.25 mm meshes from the 1 mm solution (as in the production) and from rest;
+  arrays and attributes compared with `validation/compare_init.py`.
