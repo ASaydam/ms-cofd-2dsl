@@ -93,3 +93,17 @@ def test_build_dataset(tmp_path, monkeypatch):
     dropped = list(csv.DictReader(open(out / 'dropped_cases.csv')))
     assert [row['case_name'] for row in dropped] == ['normal_circle_0002']
     assert len((out / 'checksums.md5').read_text().splitlines()) == len([p for p in out.rglob('*') if p.is_file()]) - 1
+
+    # the loader reads the same rows in every level, with the parameters of the case
+    from dataset.loader import MSCOFD
+    data = MSCOFD(out, split=list(info['splits']), levels=['base_lu', '16x'], channels=['u_x', 'p'],
+                  parameters=['rotation'])
+    assert len(data) == 2 and data.case_names == metadata.column('case_name').to_pylist()
+    for i in range(len(data)):
+        sample = data[i]
+        index = int(sample['case_name'][-4:])
+        assert tuple(sample['base_lu'].shape) == (2, 18, 6) and tuple(sample['16x'].shape) == (2, 72, 24)
+        assert float(sample['16x'][0, 0, 0]) == index and float(sample['parameters'][0]) == 10 * index
+    normalised = MSCOFD(out, split=list(info['splits']), levels=['16x'], normalise=True)
+    stacked = np.stack([np.asarray(normalised[i]['16x']) for i in range(len(normalised))])
+    assert abs(stacked[:, 0].mean()) < 1e-5            # one split, so its statistics are those of all cases
