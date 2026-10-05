@@ -14,9 +14,9 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
 |---|---|
 | Cases | 4500: 5 obstacle families × 3 size classes × 300 |
 | Families | rectangle, diamond, left triangle (pointing upstream), right triangle (pointing downstream), circle (four splines) |
-| Size classes | normal, smaller (0.65×), larger (1.35×) |
+| Size classes | normal, smaller (0.65×), larger (1.3×) |
 | Domain | channel 360 mm × 120 mm, obstacle nominally centred 130 mm from the inlet |
-| Variety | width ±10 %, height ±20 %, random corner offsets, rotation ±45° about the centroid, shift −30…+10 mm along and ±15 mm across the channel |
+| Variety | width ±10 %, height ±20 %, random corner offsets, rotation ±45° about the centroid, shift −30…+10 mm along and ±15 mm across the channel; blockage ratio (obstacle height / channel height) at most 0.45, where the flow stays steady |
 | Flow | incompressible, laminar, steady; ν = 1·10⁻⁴ m²/s; uniform inlet velocity 0.1 m/s |
 | Boundary conditions | inlet: fixed velocity, zero-gradient pressure; outlet: zero-gradient velocity, p = 0; walls and obstacle: no-slip |
 | Runs per case | `0.25x` 2 mm · `base_fo` 1 mm, first-order upwind · `base_lu` 1 mm · `4x` 0.5 mm · `16x` 0.25 mm (all others second-order upwind) |
@@ -54,7 +54,7 @@ include both ends of the domain. Points inside the obstacle are 0 in the flow ch
 
 1. **Geometry** (`geometries/`): the obstacle is drawn from its own random generator, seeded with the global seed
    and the case name. An obstacle that does not keep 5 mm from the walls, 60 mm from the inlet and 150 mm from the
-   outlet, or crosses itself, is drawn again. Written as gmsh `.geo` files (one per resolution, identical apart
+   outlet, blocks more than 45 % of the channel height, or crosses itself, is drawn again. Written as gmsh `.geo` files (one per resolution, identical apart
    from the mesh size) and a manifest.
 2. **Mesh** (gmsh): unstructured quad-dominant 2D mesh, extruded one cell in z, converted with `gmshToFoam`.
 3. **Solver** (OpenFOAM `simpleFoam`, `openfoam/case-templates/`): the 4x and 16x runs start from the converged

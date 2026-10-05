@@ -67,6 +67,7 @@ def test_every_obstacle_keeps_the_minimum_gaps(config):
             assert min(gaps['gap_bottom'], gaps['gap_top']) >= placement['min_wall_gap']
             assert gaps['gap_inlet'] >= placement['min_inlet_gap']
             assert gaps['gap_outlet'] >= placement['min_outlet_gap']
+            assert gaps['blockage_ratio'] <= placement['max_blockage']
             assert obstacle['attempts'] >= 1
 
 
@@ -88,6 +89,9 @@ def test_check_geometry(config):
     assert not check_geometry(square + [0, 47], domain, placement)              # 3 mm from the top wall
     assert not check_geometry(square - [45, 0], domain, placement)              # 55 mm from the inlet
     assert not check_geometry(square + [70, 0], domain, placement)              # 140 mm from the outlet
+    tall = np.array([[100, 30], [150, 30], [150, 85], [100, 85]], dtype=float)  # blockage 55 / 120 = 0.46
+    assert not check_geometry(tall, domain, placement)
+    assert check_geometry(tall + [[0, 0], [0, 0], [0, -2], [0, -2]], domain, placement)  # 53 / 120 = 0.44
 
 
 def test_circle_outline_has_arc_points(config):

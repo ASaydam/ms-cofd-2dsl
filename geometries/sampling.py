@@ -172,6 +172,7 @@ def check_geometry(outline, domain, placement):
     """
     checks every obstacle has to pass before it is written to a .geo file:
     * the minimum gaps to the top and bottom walls, the inlet and the outlet are kept
+    * the blockage ratio (height of the bounding box / channel height) is at most max_blockage
     * the points are in counter-clockwise order
     * the outline does not cross itself
     """
@@ -179,6 +180,8 @@ def check_geometry(outline, domain, placement):
     inside = (y.min() >= placement['min_wall_gap'] and y.max() <= domain['height'] - placement['min_wall_gap']
               and x.min() >= placement['min_inlet_gap'] and x.max() <= domain['length'] - placement['min_outlet_gap'])
     if not inside or polygon_area(outline) <= 0:
+        return False
+    if (y.max() - y.min()) / domain['height'] > placement.get('max_blockage', 1.0):
         return False
 
     # compare every side with the sides that are not its neighbours
