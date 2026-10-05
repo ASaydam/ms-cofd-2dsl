@@ -8,7 +8,8 @@ when it ends (hpc/job_task.sh), and it is called during monitoring. Each call do
 
 A data root other than the production (e.g. a pilot, MSCOFD_DATA_ROOT) can hold two files of its own:
     cases.txt     the cases of this root, used when --cases is not given (also by the calls of the jobs)
-    slurm.yaml    entries that replace the top-level entries of config/slurm.yaml (e.g. footprint)
+    slurm.yaml    entries that replace the top-level entries of config/slurm.yaml (e.g. footprint, job_name_prefix),
+                  and only_runs: the runs of this root (default: all runs of config/dataset.yaml)
 
 What it does:
 1. one call at a time (a lock that holds across nodes, see ledger.DirectoryLock) and at most one every
@@ -220,7 +221,7 @@ def top_up(root, slurm, dataset, args):
         return
 
     # 4. interrupted and failed tasks
-    runs = list(dataset['runs'])
+    runs = [run for run in dataset['runs'] if run in slurm.get('only_runs', dataset['runs'])]
     manifest = ledger.read_manifest(root / 'geometry' / 'manifest.csv')
     cases = ledger.case_order(manifest)
     cases_file = cases_file_of(root, args.cases)
