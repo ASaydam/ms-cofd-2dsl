@@ -22,6 +22,7 @@ What it does:
 4. tasks whose job is gone without a done / failed state (preempted, time limit, node failure) and failed tasks
    are submitted again, up to max_attempts submissions; they continue where they stopped (hpc/run_task.py)
 5. ready tasks (hpc/ledger.py) are submitted in their order until running + pending jobs reach max_queued
+Tasks in <data root>/hold.txt (lines "<run> <case>") are not submitted in 4 or 5 until they are removed from it.
 
 Runs with the Python of the cluster (standard library and PyYAML), outside of the container.
 """
@@ -118,20 +119,22 @@ def dataset_cases(root, dataset, states, cases_file=None):
 
 
 def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependencies=None, gate=None, discarded=(),
-                 priority=None):
+                 priority=None, held=()):
     """
     the tasks to submit: failed tasks and interrupted ones (their job is gone without a done / failed state) with
     submissions left, then the ready tasks (ledger.ready_tasks); a task is in only one of the lists; nothing of a
-    discarded case
+    discarded case and no held task
     :param attempts_of: function (run, case) -> number of submissions so far
     :param dependencies: {run: run it starts from} (ledger.dependencies_of)
     :param gate, discarded, priority: see ledger.ready_tasks
+    :param held: tasks on hold (ledger.held_tasks)
     :return: retry, ready, exhausted (interrupted tasks without submissions left: (run, case, marker content))
     """
     selected = set(cases) - set(discarded)
+    held = set(held)
     retry, exhausted = [], []
     for (run, case), (state, content) in states.items():
-        if case not in selected:
+        if case not in selected or (run, case) in held:
             continue
         interrupted = state in ('submitted', 'running') and (run, case) not in jobs
         if interrupted or state == 'failed':
@@ -139,7 +142,9 @@ def select_tasks(states, jobs, cases, runs, attempts_of, max_attempts, dependenc
                 retry.append((run, case))
             elif interrupted:
                 exhausted.append((run, case, content))
-    return retry, ledger.ready_tasks(cases, runs, states, dependencies, gate, discarded, priority), exhausted
+    ready = [task for task in ledger.ready_tasks(cases, runs, states, dependencies, gate, discarded, priority)
+             if task not in held]
+    return retry, ready, exhausted
 
 
 def used_gib(root):
@@ -266,10 +271,11 @@ def top_up(root, slurm, dataset, args):
     runs = [run for run in dataset['runs'] if run in slurm.get('only_runs', dataset['runs'])]
     states = ledger.read_states(runs, root)
     cases, discarded, reserves = dataset_cases(root, dataset, states, cases_file_of(root, args.cases))
+    held = ledger.held_tasks(root)
     retry, ready, exhausted = select_tasks(states, jobs, cases, runs, lambda run, case: attempts_of(root, run, case),
                                            slurm['max_attempts'], ledger.dependencies_of(dataset['runs']),
                                            dataset.get('selection', {}).get('gate'), discarded,
-                                           slurm.get('run_priority'))
+                                           slurm.get('run_priority'), held)
     for run, case, content in exhausted:
         if not args.dry_run:
             ledger.set_state(run, case, 'failed', f"interrupted, {slurm['max_attempts']} submissions ({content})",
@@ -289,7 +295,7 @@ def top_up(root, slurm, dataset, args):
     print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {queued} queued, {submitted} submitted "
           f"({len(retry)} again), {len(candidates) - submitted} ready and waiting; {used:.0f} GiB used, "
           f"{backlog:.1f} GiB not uploaded; {len(discarded)} cases without a steady solution, "
-          f"{len(reserves)} reserve cases in use")
+          f"{len(reserves)} reserve cases in use, {len(held)} tasks on hold")
 
 
 if __name__ == "__main__":

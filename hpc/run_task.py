@@ -10,6 +10,8 @@ it stopped:
 1. case folder: the template of the run (config/dataset.yaml, runs) and the .geo file of the resolution
 2. mesh: gmsh -> gmshToFoam -> changeDictionary (patch types) -> checkMesh
 3. initial fields (4x, 16x): mapFields from the base_lu solution of the case (<data root>/seeds/<case>)
+   <data root>/case_settings.txt can give one task other solver settings (templates) or initial fields (init_from),
+   see hpc/ledger.py case_settings; the provenance records them
 4. simpleFoam until residualControl stops it, or the endTime cap; continued from the latest time step when the
    task was interrupted. Peak memory measured with /usr/bin/time -v.
 5. base_lu: the solution is kept in seeds/<case> until the 4x and 16x runs of the case are done
@@ -58,7 +60,9 @@ class Task:
     def __init__(self, run, case):
         self.config = load_config()
         self.run, self.case = run, case
-        self.settings = self.config['runs'][run]
+        # the run's entries of config/dataset.yaml, with those of <data root>/case_settings.txt for this task
+        self.case_settings = ledger.case_settings(run, case)
+        self.settings = {**self.config['runs'][run], **self.case_settings}
         self.resolution = self.settings['resolution']
         self.root = Path(os.environ['MSCOFD_DATA_ROOT'])
         paths = self.config['paths']
@@ -246,6 +250,7 @@ class Task:
             'mesh_variant': (self.folder / 'mesh_variant').read_text().strip()
             if (self.folder / 'mesh_variant').exists() else '',
             'end_time_override': self.end_time_override(),
+            'init_from': self.settings.get('init_from') or '', 'case_settings': self.case_settings,
             'peak_memory_kb': max(peaks) if peaks else None, 'timings_s': self.timings,
             'host': platform.node().split('.')[0], 'cpu_model': cpu,
             'node_cpus_allocated': os.environ.get('MSCOFD_NODE_ALLOCATED', ''),
@@ -270,7 +275,7 @@ class Task:
 
     def release_seed(self):
         """the base_lu solution is removed when the 4x and 16x runs of the case are done"""
-        if not self.settings.get('init_from'):
+        if not self.config['runs'][self.run].get('init_from'):  # a run started from it by case_settings.txt only
             return
         (self.seed / f"done_{self.run}").touch()
         users = [run for run, settings in self.config['runs'].items() if settings.get('init_from') == 'base_lu']

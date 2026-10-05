@@ -1,0 +1,68 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  plus                                  |
+|   \\  /    A nd           | Web:      www.OpenFOAM.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Solver settings for converged steady solutions: SIMPLEC (consistent), GAMG for p, residualControl 1e-6.
+// The converged solution does not depend on these settings, only on the discretisation (fvSchemes).
+//
+// second-order-relaxed: the second-order template with only these settings changed, for 2 mm runs that stalled
+// with SIMPLEC (residuals constant at 1e-3 to 3e-2): SIMPLE with under-relaxation p 0.3, U 0.7. Every other
+// file, the discretisation included, is the same as in second-order/0.25x.
+
+solvers
+{
+    p
+    {
+        solver          GAMG;
+        smoother        GaussSeidel;
+        tolerance       1e-8;
+        relTol          0.01;
+    }
+
+    U
+    {
+        solver          smoothSolver;
+        smoother        symGaussSeidel;
+        tolerance       1e-8;
+        relTol          0.1;
+    }
+}
+
+SIMPLE
+{
+    nNonOrthogonalCorrectors 1;
+    consistent      no;
+
+    residualControl
+    {
+        p               1e-6;
+        U               1e-6;
+    }
+}
+
+relaxationFactors
+{
+    fields
+    {
+        p               0.3;
+    }
+    equations
+    {
+        U               0.7;
+    }
+}
+
+// ************************************************************************* //

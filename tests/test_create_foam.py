@@ -37,3 +37,17 @@ def test_init_from_needs_the_source_case(tmp_path):
     (tmp_path / "base").mkdir()
     with pytest.raises(FileNotFoundError):
         create_foam(tmp_path / "mesh", tmp_path / "16x", "16x", init_from=tmp_path / "base")
+
+
+def test_relaxed_template_changes_only_the_solver_settings():
+    # a case run with second-order-relaxed converges to the same solution: every file but system/fvSolution is equal
+    from utils import REPO_ROOT
+
+    templates = REPO_ROOT / 'openfoam' / 'case-templates'
+    relaxed, plain = templates / 'second-order-relaxed' / '0.25x', templates / 'second-order' / '0.25x'
+    files = sorted(p.relative_to(relaxed).as_posix() for p in relaxed.rglob('*') if p.is_file())
+    assert files == sorted(p.relative_to(plain).as_posix() for p in plain.rglob('*') if p.is_file())
+    different = [name for name in files if (relaxed / name).read_bytes() != (plain / name).read_bytes()]
+    assert different == ['system/fvSolution']
+    text = (relaxed / 'system' / 'fvSolution').read_text()
+    assert 'consistent      no;' in text and 'p               0.3;' in text and 'U               0.7;' in text

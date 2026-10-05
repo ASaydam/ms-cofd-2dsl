@@ -45,7 +45,8 @@ from tools import mesh_study  # noqa: E402
 LABELS = {'0.25x': '2 mm, second order', 'base_fo': '1 mm, first order', 'base_lu': '1 mm, second order',
           '4x': '0.5 mm, second order', '16x': '0.25 mm, second order'}
 PROVENANCE = ['status', 'iterations', 'solver_runs', 'residual_Ux', 'residual_Uy', 'residual_p', 'mesh_ok',
-              'mesh_variant', 'end_time_override', 'cells', 'exported_time', 'execution_time_s', 'clock_time_s',
+              'mesh_variant', 'end_time_override', 'templates', 'init_from', 'cells', 'exported_time',
+              'execution_time_s', 'clock_time_s',
               'peak_memory_kb', 'host', 'cpu_model', 'node_cpus_allocated', 'slurm_job_id', 'container_digest',
               'code_revision', 'finished']
 
@@ -137,7 +138,8 @@ def metadata_row(root, runs, row, split, index):
         provenance = json.loads(files['provenance'].read_text())
         for key in PROVENANCE:
             value = provenance.get(key)
-            text = key in ('mesh_variant', 'code_revision', 'host', 'slurm_job_id', 'cpu_model', 'container_digest')
+            text = key in ('mesh_variant', 'templates', 'init_from', 'code_revision', 'host', 'slurm_job_id',
+                           'cpu_model', 'container_digest')
             out[f"{run}.{key}"] = value if text else number_or_text(value)
         timings = provenance.get('timings_s') or {}
         out[f"{run}.task_time_s"] = round(sum(timings.values()), 2) if timings else None

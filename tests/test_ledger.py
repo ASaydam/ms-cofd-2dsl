@@ -98,6 +98,29 @@ def test_select_tasks_lists_a_task_once():
     retry, ready, exhausted = topup.select_tasks(states, jobs, cases, RUNS, lambda run, case: 3, 3)
     assert retry == [] and exhausted == [('4x', first, '120 be01')]
 
+    # held tasks are neither submitted again nor started, nor marked failed
+    held = {('16x', first), ('4x', first), ('4x', second)}
+    retry, ready, exhausted = topup.select_tasks(states, jobs, cases, RUNS, lambda run, case: 1, 3, held=held)
+    assert retry == [] and not held & set(ready) and ('base_fo', second) in ready
+    retry, ready, exhausted = topup.select_tasks(states, jobs, cases, RUNS, lambda run, case: 3, 3, held=held)
+    assert exhausted == []
+
+
+def test_task_lists_of_the_data_root(tmp_path):
+    (tmp_path / 'hold.txt').write_text("# 0.25 mm runs of cases whose 2 mm run did not converge\n"
+                                       "16x normal_left_triangle_0271\n\n16x larger_circle_0279  # flat\n")
+    assert ledger.held_tasks(tmp_path) == {('16x', 'normal_left_triangle_0271'), ('16x', 'larger_circle_0279')}
+    assert ledger.held_tasks(tmp_path / 'missing') == set()
+
+    (tmp_path / 'case_settings.txt').write_text("0.25x normal_left_triangle_0271 templates second-order-relaxed\n"
+                                                "0.25x normal_left_triangle_0271 init_from base_lu\n"
+                                                "0.25x larger_circle_0279 fvSchemes linear\n")
+    assert ledger.case_settings('0.25x', 'normal_left_triangle_0271', tmp_path) == \
+        {'templates': 'second-order-relaxed', 'init_from': 'base_lu'}
+    assert ledger.case_settings('16x', 'normal_left_triangle_0271', tmp_path) == {}
+    with pytest.raises(ValueError):  # only solver settings and initial fields, never the discretisation
+        ledger.case_settings('0.25x', 'larger_circle_0279', tmp_path)
+
 
 def test_directory_lock(tmp_path):
     path = tmp_path / 'topup.lockdir'

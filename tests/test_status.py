@@ -136,3 +136,18 @@ def test_pace():
     assert status.pace({**job, 'log_age_s': 3600}) == 'frozen'
     assert status.pace({'stage': 'meshing'}) == 'meshing'
     assert status.pace({'stage': 'solving', 'log_age_s': 0}) == 'ok'          # no trend yet
+
+
+def test_rerun_counts_with_its_last_run_and_held_tasks(tmp_path):
+    names = fake_root(tmp_path)
+    (tmp_path / 'results' / '0.25x').mkdir(parents=True)
+    (tmp_path / 'results' / '0.25x' / 'summary.csv').write_text(
+        "case,status,execution_time_s,finished\n"
+        f"{names[0]},end_time,400,2026-10-05T09:00:00+0300\n{names[0]},converged,900,2026-10-06T09:00:00+0300\n")
+    (tmp_path / 'hold.txt').write_text(f"16x {names[0]}\n")
+    slurm, dataset = topup.load_settings(tmp_path)
+    now = datetime.fromisoformat("2026-10-06T10:00:00+03:00")
+    result = status.collect(tmp_path, slurm, dataset, jobs={}, used=1.0, backlog=0.0, now=now, running=[])
+    runs = {r['run']: r for r in result['runs']}
+    assert runs['0.25x']['end_time'] == 0 and runs['0.25x']['core_hours'] == round(1300 / 3600, 2)
+    assert runs['16x']['held'] == 1 and runs['4x']['held'] == 0

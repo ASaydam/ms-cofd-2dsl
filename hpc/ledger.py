@@ -10,6 +10,12 @@ marker file in <data root>/state/<run>/, so it can be read and changed by the jo
     <case>.done        finished, the solver converged (or stopped at the endTime cap, see the provenance file)
     <case>.failed      failed (the file holds the reason); interrupted tasks are submitted again, see topup.py
 
+Task lists of the data root (written by hand, read by topup.py and run_task.py):
+
+    hold.txt            tasks that are not submitted until they are removed from it
+    iterations.txt      a higher endTime cap for a task (run_task.py)
+    case_settings.txt   solver settings or initial fields of a task (case_settings)
+
 This module only uses the Python standard library, it runs on the login node as well as in the container.
 """
 
@@ -126,6 +132,48 @@ def case_order(manifest_rows):
 def read_manifest(path):
     with open(path, newline='') as file:
         return list(csv.DictReader(file))
+
+
+def task_lines(path):
+    """
+    lines "<run> <case> [values]" of a task list of the data root (hold.txt, case_settings.txt), without empty lines
+    and # comments: [(run, case, [values])]; [] when the file does not exist
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+    lines = []
+    for line in path.read_text().splitlines():
+        fields = line.split('#', 1)[0].split()
+        if len(fields) >= 2:
+            lines.append((fields[0], fields[1], fields[2:]))
+    return lines
+
+
+def held_tasks(root=None):
+    """tasks on hold (<data root>/hold.txt, lines "<run> <case>"): not submitted, also not again, until removed"""
+    return {(run, case) for run, case, _ in task_lines(Path(root or data_root()) / 'hold.txt')}
+
+
+# entries of a run in config/dataset.yaml that case_settings.txt can replace for one task: the solver settings
+# (templates whose files differ only in system/fvSolution) and the run whose solution gives the initial fields
+CASE_SETTINGS = ('templates', 'init_from')
+
+
+def case_settings(run, case, root=None):
+    """
+    entries of the run (config/dataset.yaml, runs) replaced for one task, from <data root>/case_settings.txt (lines
+    "<run> <case> <entry> <value>", entry in CASE_SETTINGS): {entry: value}
+    """
+    settings = {}
+    for line_run, line_case, values in task_lines(Path(root or data_root()) / 'case_settings.txt'):
+        if (line_run, line_case) != (run, case):
+            continue
+        if len(values) != 2 or values[0] not in CASE_SETTINGS:
+            raise ValueError(f"case_settings.txt: '{line_run} {line_case} {' '.join(values)}', expected "
+                             f"'<run> <case> <entry> <value>' with entry in {CASE_SETTINGS}")
+        settings[values[0]] = values[1]
+    return settings
 
 
 def dependencies_of(runs):

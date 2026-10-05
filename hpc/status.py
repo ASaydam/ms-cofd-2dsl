@@ -231,6 +231,7 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
                         'pending': sum(s == 'PENDING' for _, s, _ in jobs.values())}}
     recent = []  # (finished, run, summary row) of the last finished tasks of every run
     summaries = {}
+    held = ledger.held_tasks(root)
     for run in runs:
         counts = Counter(state for (r, c), (state, _) in states.items() if r == run and c in members)
         summary = root / 'results' / run / 'summary.csv'
@@ -246,7 +247,9 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
             'target': cases,
             'done': counts['done'], 'running': queued['RUNNING'], 'pending': queued['PENDING'],
             'submitted': counts['submitted'], 'failed': counts['failed'],
-            'end_time': sum(row['status'] == 'end_time' for row in rows),
+            'held': sum(1 for r, case in held if r == run and case in members),
+            # a task run again (higher cap, other settings) counts with its last run; the compute counts every run
+            'end_time': sum(row['status'] == 'end_time' for row in {row['case']: row for row in rows}.values()),
             'core_hours': round(hours, 2), 'mean_hours': round(hours / len(rows), 4) if rows else None,
             **{f'done_{h}h': sum(t > now - timedelta(hours=h) for t in finished) for h in (1, 6, 24)}})
     status['core_hours'] = round(sum(r['core_hours'] for r in status['runs']), 1)
@@ -288,7 +291,8 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
     failed = [(run, case, content) for (run, case), (state, content) in states.items() if state == 'failed']
     status['failures'] = [{'run': run, 'case': case, 'reason': content[:200]} for run, case, content in failed[-20:]]
     status['interrupted'] = sum(1 for (run, case), (state, _) in states.items()
-                                if state in ('submitted', 'running') and (run, case) not in jobs)
+                                if state in ('submitted', 'running') and (run, case) not in jobs
+                                and (run, case) not in held)
     return status
 
 
@@ -349,6 +353,9 @@ def main():
             print(f"  {f['run']:8s} {f['case']:28s} {f['reason'][:150]}")
     if status['interrupted']:
         print(f"\n{status['interrupted']} tasks without a job (interrupted), topup.py submits them again")
+    held = [f"{r['held']} {r['run']}" for r in status['runs'] if r['held']]
+    if held:
+        print(f"\non hold (hold.txt, not submitted): {', '.join(held)}")
 
 
 if __name__ == "__main__":
