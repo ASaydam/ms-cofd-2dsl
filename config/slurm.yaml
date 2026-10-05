@@ -25,13 +25,14 @@ windows:
 
 # time and memory per run, from the pilots (an interrupted job is submitted again and continues the run). Solver
 # alone (peak resident memory, longest converged run): 0.25x 45 MB / 0.1 h, base 90 MB / 0.6 h at the iteration cap,
-# 4x 264 MB / 0.7 h, 16x 942 MB / 4.7 h; meshing (gmsh) and the arrays (VTK) add to the memory
+# 4x 264 MB / 1.3 h, 16x 942 MB / 15.4 h (pilot 1, blockage <= 0.40: 2.4 to 15.4 h, mean 7.3 h; 12 h until 5 Oct,
+# 16 h since, so that nearly every run ends in one job); meshing (gmsh) and the arrays (VTK) add to the memory
 runs:
   0.25x:   {time: "02:00:00", mem: 1G}
   base_fo: {time: "02:00:00", mem: 1G}
   base_lu: {time: "02:00:00", mem: 1G}
   4x:      {time: "03:00:00", mem: 2G}
-  16x:     {time: "12:00:00", mem: 4G}
+  16x:     {time: "16:00:00", mem: 4G}
 
 # footprint guard (the user quota is 1 TiB): submissions pause above these values (GiB). /scratch is BeeGFS with
 # buddy mirroring: the quota usage (beegfs-ctl) counts every file twice, so 600 GiB used is ~300 GiB of data.
@@ -45,6 +46,16 @@ status:
   repo: git@github.com:ASaydam/ms-cofd-2dsl-status.git
   branch: data
   every_min: 10
+  # solver hours of a run as a function of the blockage ratio, for the compute left (hpc/status.py hours_left):
+  # hours = intercept + per_blockage * blockage, at least min. Least squares over the 26 cases of pilot 1 with
+  # blockage <= 0.40 (r = 0.63 to 0.77). The first runs of a level to finish are the fast ones, so the finished runs
+  # get a fit of their own only once half of the level is done
+  hours_model:
+    0.25x:   {intercept: -0.0030, per_blockage: 0.0242, min: 0.0013}
+    base_fo: {intercept: -0.0043, per_blockage: 0.1305, min: 0.0159}
+    base_lu: {intercept: -0.0203, per_blockage: 0.2456, min: 0.0190}
+    4x:      {intercept: -0.1027, per_blockage: 1.9316, min: 0.1647}
+    16x:     {intercept: -2.1568, per_blockage: 34.6164, min: 2.3984}
 
 # submission order of the ready runs (default in hpc/ledger.py: base_lu, 16x, 4x, base_fo, 0.25x). From 5 Oct the cheap
 # 2 mm and first-order runs of all cases go first, to see how many converge before the 0.25 mm runs continue

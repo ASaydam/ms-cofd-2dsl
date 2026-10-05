@@ -55,6 +55,47 @@ def parse_time(text):
         return None
 
 
+def fit_line(x, y):
+    """least squares (intercept, slope) of y over x"""
+    mean_x, mean_y = sum(x) / len(x), sum(y) / len(y)
+    sxx = sum((a - mean_x) ** 2 for a in x)
+    slope = sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y)) / sxx if sxx else 0.0
+    return mean_y - slope * mean_x, slope
+
+
+def hours_left(rows, blockage, remaining, running, model, target):
+    """
+    estimated solver hours of the runs of a level that are not done: per case intercept + per_blockage * blockage
+    ratio (at least min), with the pilot fit (status.hours_model in config/slurm.yaml), or with a fit to the finished
+    runs once half of the level is done (the first runs to finish are the fast ones); a running task counts with what
+    is left after its elapsed time (at least a tenth). Without a model: the mean of the finished runs.
+    :param rows: rows of results/<run>/summary.csv (finished runs)
+    :param blockage: {case: blockage ratio} of the manifest
+    :param remaining: cases of the dataset whose run is not done
+    :param running: {case: elapsed seconds} of the running jobs of the level
+    :param model: {intercept, per_blockage, min} or None
+    :param target: number of cases of the level
+    :return: hours (None without any estimate), source of the estimate
+    """
+    finished = {row['case']: float(row['execution_time_s'] or 0) / 3600 for row in rows if row['case'] in blockage}
+    if len(finished) >= 30 and len(finished) >= target / 2:
+        intercept, slope = fit_line([blockage[case] for case in finished], list(finished.values()))
+        low, source = min(finished.values()), 'fit to the finished runs'
+    elif model:
+        intercept, slope, low, source = model['intercept'], model['per_blockage'], model['min'], 'pilot fit'
+    elif finished:
+        return round(len(remaining) * sum(finished.values()) / len(finished), 1), 'mean of the finished runs'
+    else:
+        return None, None
+    total = 0.0
+    for case in remaining:
+        hours = max(intercept + slope * blockage.get(case, 0.0), low)
+        if case in running:
+            hours = max(hours - running[case] / 3600, hours / 10)
+        total += hours
+    return round(total, 1), source
+
+
 def seconds(text):
     """a squeue time ([days-]hours:minutes:seconds, minutes:seconds) in seconds, None for UNLIMITED and the like"""
     try:
@@ -142,11 +183,7 @@ def job_progress(folder, mapped, now=None, tail=1 << 16):
     recent = samples[start:]
     if len(recent) >= 10 and recent[-1][0] > recent[0][0]:
         progress['s_per_iteration'] = round((recent[-1][2] - recent[0][2]) / (recent[-1][0] - recent[0][0]), 3)
-        x = [s[0] for s in recent]
-        y = [math.log10(max(max(s[1].values()), 1e-30)) for s in recent]
-        mean_x, mean_y = sum(x) / len(x), sum(y) / len(y)
-        slope = (sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y)) /
-                 sum((a - mean_x) ** 2 for a in x))
+        _, slope = fit_line([s[0] for s in recent], [math.log10(max(max(s[1].values()), 1e-30)) for s in recent])
         progress['decades_per_1000'] = round(1000 * slope, 4)
         if slope < 0:
             left = max((math.log10(progress['residual']) + TARGET_DECADES) / -slope, 0)
@@ -193,10 +230,11 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
               'queue': {'running': sum(s == 'RUNNING' for _, s, _ in jobs.values()),
                         'pending': sum(s == 'PENDING' for _, s, _ in jobs.values())}}
     recent = []  # (finished, run, summary row) of the last finished tasks of every run
+    summaries = {}
     for run in runs:
         counts = Counter(state for (r, c), (state, _) in states.items() if r == run and c in members)
         summary = root / 'results' / run / 'summary.csv'
-        rows = list(csv.DictReader(open(summary))) if summary.exists() else []
+        rows = summaries[run] = list(csv.DictReader(open(summary))) if summary.exists() else []
         hours = sum(float(row['execution_time_s'] or 0) for row in rows) / 3600
         finished = [t for t in (parse_time(row.get('finished', '')) for row in rows) if t]
         for row in rows[-15:]:
@@ -231,6 +269,17 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
         mapped = bool(dataset['runs'].get(job['run'], {}).get('init_from'))
         progress = {**job, **job_progress(folder, mapped, now)}
         status['jobs'].append({**progress, 'pace': pace(progress)})
+
+    # compute left per level, from the blockage ratio of every case not done yet
+    blockage = {row['case_name']: float(row['blockage_ratio'])
+                for row in ledger.read_manifest(root / 'geometry' / 'manifest.csv') if row.get('blockage_ratio')}
+    models = (slurm.get('status') or {}).get('hours_model') or {}
+    for entry in status['runs']:
+        run = entry['run']
+        remaining = [case for case in members if states.get((run, case), (None, ''))[0] != 'done']
+        running_cases = {job['case']: job['elapsed_s'] or 0 for job in status['jobs'] if job['run'] == run}
+        entry['hours_left'], entry['hours_source'] = hours_left(summaries[run], blockage, remaining, running_cases,
+                                                                models.get(run), entry['target'])
     status['finished'] = [{'run': run, 'case': row['case'], 'status': row['status'],
                            'iterations': int(float(row['iterations'])) if row.get('iterations') else None,
                            'hours': round(float(row['execution_time_s'] or 0) / 3600, 3),
@@ -261,12 +310,13 @@ def main():
     print(f"qos window: {status['window']}  queue: {status['queue']['running']} running, "
           f"{status['queue']['pending']} pending")
     print(f"\n{'run':8s} {'done':>6s} {'target':>7s} {'running':>8s} {'submitted':>10s} {'failed':>7s} "
-          f"{'core-h':>8s} {'mean h':>7s} {'end_time':>9s} {'done 1h':>8s} {'done 24h':>9s}")
+          f"{'core-h':>8s} {'mean h':>7s} {'end_time':>9s} {'done 1h':>8s} {'done 24h':>9s} {'left h':>8s}")
     for r in status['runs']:
         print(f"{r['run']:8s} {r['done']:6d} {r['target']:7d} {r['running']:8d} {r['submitted']:10d} {r['failed']:7d} "
               f"{r['core_hours']:8.1f} {r['mean_hours'] or 0:7.2f} {r['end_time']:9d} {r['done_1h']:8d} "
-              f"{r['done_24h']:9d}")
-    print(f"solver core-hours so far: {status['core_hours']:.0f}")
+              f"{r['done_24h']:9d} {r['hours_left'] if r['hours_left'] is not None else '-':>8}")
+    left = sum(r['hours_left'] or 0 for r in status['runs'])
+    print(f"solver core-hours so far: {status['core_hours']:.0f}, left (estimate from the blockage ratio): {left:.0f}")
 
     flag = '  WARNING' if status['quota_gib'] > status['pause_gib'] else ''
     flag = '  ALARM: close to the quota' if status['quota_gib'] > 800 else flag

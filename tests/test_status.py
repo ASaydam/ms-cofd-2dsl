@@ -46,6 +46,21 @@ def test_parse_time():
     assert status.parse_time("") is None
 
 
+def test_hours_left():
+    blockage = {f"c{i}": 0.1 * i for i in range(1, 5)}
+    model = {'intercept': -2.0, 'per_blockage': 30.0, 'min': 2.0}
+    # pilot fit: c3 -> 7 h, c4 -> 10 h; c4 has run 4 h already; c1 (1 h) is lifted to the minimum of 2 h
+    hours, source = status.hours_left([], blockage, ['c1', 'c3', 'c4'], {'c4': 4 * 3600}, model, 100)
+    assert source == 'pilot fit' and hours == 2 + 7 + 6
+    # once half of the level is done the finished runs give the fit (here exactly 1 + 10 * blockage)
+    rows = [{'case': f"d{i}", 'execution_time_s': str(3600 * (1 + i / 10))} for i in range(40)]
+    blockage.update({f"d{i}": i / 100 for i in range(40)})
+    hours, source = status.hours_left(rows, blockage, ['c4'], {}, model, 60)
+    assert source == 'fit to the finished runs' and math.isclose(hours, 5.0)
+    assert status.hours_left(rows[:3], blockage, ['c4'], {}, None, 60) == (round(1.1, 1), 'mean of the finished runs')
+    assert status.hours_left([], blockage, ['c4'], {}, None, 60) == (None, None)
+
+
 def test_seconds():
     assert status.seconds("1-02:03:04") == 93784 and status.seconds("2:03:04") == 7384
     assert status.seconds("5:07") == 307 and status.seconds("UNLIMITED") is None
