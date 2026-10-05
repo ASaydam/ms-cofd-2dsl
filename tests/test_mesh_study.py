@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from tools.mesh_study import observed_order, study
 
 
@@ -30,3 +32,35 @@ def test_growing_differences_are_not_converged():
     result = study(4.0, 2.0, 1.0, 16.0, 4.0, 1.0)
     assert result['convergence'] == 'none'
     assert 'extrapolated' not in result
+
+
+def test_run_summary_table_and_extra_levels(tmp_path):
+    """per-run results -> attribute table -> mesh study with the 2 mm level as an extra level"""
+    import csv
+    import json
+    import subprocess
+    import sys
+
+    from tools import run_summary
+
+    cells = {'0.25x': 1000, 'base_lu': 4000, '4x': 16000, '16x': 64000}
+    value = {'0.25x': 1.16, 'base_lu': 1.04, '4x': 1.01, '16x': 1.0025}   # second order towards 1
+    for run, n in cells.items():
+        folder = tmp_path / 'results' / run
+        folder.mkdir(parents=True)
+        (folder / 'c1_provenance.json').write_text(json.dumps(
+            {'status': 'converged', 'iterations': '100', 'clock_time_s': 60.0, 'peak_memory_kb': 2048, 'cells': n}))
+        (folder / 'c1_attributes.json').write_text(json.dumps(
+            {'cells': n, 'Fx': value[run], 'outlet_reverse_flow': 0.0}))
+    sys.argv = ['run_summary', str(tmp_path)]
+    run_summary.main()
+    table = tmp_path / 'results' / 'openfoam_attributes.csv'
+    rows = {r['resolution']: r for r in csv.DictReader(open(table))}
+    assert set(rows) == {'0.25x', 'base', '4x', '16x'} and rows['base']['Fx'] == '1.04'
+
+    pytest.importorskip("numpy")
+    subprocess.run([sys.executable, '-m', 'tools.mesh_study', str(table), '--extra', '0.25x'], check=True,
+                   capture_output=True)
+    study = {r['attribute']: r for r in csv.DictReader(open(tmp_path / 'results' / 'openfoam_attributes_mesh_study.csv'))}
+    assert abs(float(study['Fx']['order']) - 2) < 0.01
+    assert abs(float(study['Fx']['0.25x_error_%']) - 16) < 0.1

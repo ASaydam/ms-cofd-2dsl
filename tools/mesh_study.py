@@ -4,8 +4,11 @@ evaluated with the procedure of Celik et al. (2008), "Procedure for estimation a
 discretization in CFD applications", J. Fluids Eng. 130(7):
 
     python -m tools.mesh_study openfoam_attributes.csv
+    python -m tools.mesh_study openfoam_attributes.csv --extra 0.25x base_fo
 
-The input is the openfoam_attributes.csv of tools/openfoam_attributes.py collected with --resolutions base 4x 16x.
+The input is the openfoam_attributes.csv of tools/openfoam_attributes.py collected with --resolutions base 4x 16x
+(or written by tools/run_summary.py). Levels given with --extra (e.g. the 2 mm mesh, or the first-order run on the
+base mesh) are not used for the extrapolation; their error against the extrapolated value is reported as well.
 For every case and attribute (phi_1 = 16x, phi_2 = 4x, phi_3 = base, cells N_i):
 
     r21, r32        refinement ratios, sqrt(N_1 / N_2) and sqrt(N_2 / N_3) (2D meshes, ~2 here)
@@ -16,6 +19,7 @@ For every case and attribute (phi_1 = 16x, phi_2 = 4x, phi_3 = base, cells N_i):
                     mesh independent value (only for monotonic convergence)
     base_error_%, 4x_error_%, 16x_error_%   |phi - phi_ext| / |phi_ext| of every mesh
     gci_16x_%       grid convergence index of the 16x mesh, 1.25 |phi_1 - phi_2| / |phi_1| / (r21^p - 1)
+    <extra>, <extra>_error_%   value and |phi - phi_ext| / |phi_ext| of every --extra level
 
 Writes <input>_mesh_study.csv and prints a summary per attribute. Needs numpy.
 """
@@ -87,6 +91,7 @@ def study(phi1, phi2, phi3, n1, n2, n3):
 def main():
     parser = argparse.ArgumentParser(description="Mesh convergence study (base / 4x / 16x) of the flow attributes")
     parser.add_argument("attributes", help="openfoam_attributes.csv collected with --resolutions base 4x 16x")
+    parser.add_argument("--extra", nargs='*', default=[], help="further levels to compare with the extrapolated value")
     args = parser.parse_args()
 
     rows = {}
@@ -101,32 +106,43 @@ def main():
             continue
         cells = [float(meshes[mesh]['cells']) for mesh in MESHES]
         for name in ATTRIBUTES:
-            phi = [float(meshes[mesh][name]) for mesh in MESHES]
+            values = [meshes[mesh].get(name, '') for mesh in MESHES]
+            if any(v in ('', 'nan', None) for v in values):
+                continue  # attribute missing on one of the meshes
+            phi = [float(v) for v in values]
             result = {'case_name': case_name, 'attribute': name, 'base': phi[2], '4x': phi[1], '16x': phi[0]}
             result.update(study(*phi, *cells))
+            for level in args.extra:
+                if level in meshes and meshes[level].get(name, '') not in ('', 'nan'):
+                    value = float(meshes[level][name])
+                    result[level] = value
+                    extrapolated = result.get('extrapolated')
+                    if extrapolated:
+                        result[f'{level}_error_%'] = 100 * abs(value - extrapolated) / abs(extrapolated)
             results.append(result)
 
     output = Path(args.attributes).with_name(Path(args.attributes).stem + "_mesh_study.csv")
     fields = ['case_name', 'attribute', 'base', '4x', '16x', 'r21', 'r32', 'ratio', 'convergence', 'order',
-              'extrapolated', 'base_error_%', '4x_error_%', '16x_error_%', 'gci_16x_%']
+              'extrapolated', 'base_error_%', '4x_error_%', '16x_error_%', 'gci_16x_%'] + \
+        [field for level in args.extra for field in (level, f'{level}_error_%')]
     write_csv(results, output, fields)
 
     print(f"{len(rows)} cases. Convergence: monotonic / oscillatory / none (differences grow with refinement);")
     print("order, errors (|phi - extrapolated| / |extrapolated|) and GCI: medians of the monotonic cases")
     print(f"{'attribute':26s} {'mono':>5s} {'osc':>4s} {'none':>5s} {'order':>6s} {'base %':>7s} {'4x %':>6s} "
-          f"{'16x %':>6s} {'GCI 16x %':>9s}")
+          f"{'16x %':>6s} {'GCI 16x %':>9s}" + ''.join(f" {level + ' %':>9s}" for level in args.extra))
     for name in ATTRIBUTES:
         group = [row for row in results if row['attribute'] == name]
         counts = [sum(row['convergence'] == kind for row in group) for kind in ('monotonic', 'oscillatory', 'none')]
         monotonic = [row for row in group if row['convergence'] == 'monotonic']
 
         def median(key):
-            values = [row[key] for row in monotonic if not math.isnan(row[key])]
+            values = [row[key] for row in monotonic if key in row and not math.isnan(row[key])]
             return np.median(values) if values else float('nan')
 
         print(f"{name:26s} {counts[0]:5d} {counts[1]:4d} {counts[2]:5d} {median('order'):6.2f} "
               f"{median('base_error_%'):7.1f} {median('4x_error_%'):6.1f} {median('16x_error_%'):6.1f} "
-              f"{median('gci_16x_%'):9.1f}")
+              f"{median('gci_16x_%'):9.1f}" + ''.join(f" {median(level + '_error_%'):9.1f}" for level in args.extra))
     print(f"Mesh study written to {output}")
 
 
