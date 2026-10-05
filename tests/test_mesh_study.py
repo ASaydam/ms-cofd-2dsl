@@ -34,6 +34,12 @@ def test_growing_differences_are_not_converged():
     assert 'extrapolated' not in result
 
 
+def test_equal_differences_give_no_order():
+    # equal steps between the levels: the first estimate of p is 0, where the fixed-point iteration divides by zero
+    result = study(1.5, 1.25, 1.0, 16000, 4000, 1000)
+    assert result['convergence'] == 'none' and math.isnan(result['order'])
+
+
 def test_run_summary_table_and_extra_levels(tmp_path):
     """per-run results -> attribute table -> mesh study with the 2 mm level as an extra level"""
     import csv

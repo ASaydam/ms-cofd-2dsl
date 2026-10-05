@@ -46,16 +46,20 @@ MESHES = ['16x', '4x', 'base']  # fine, medium, coarse (phi_1, phi_2, phi_3)
 def observed_order(phi1, phi2, phi3, r21, r32, iterations=100):
     """
     observed order of convergence p, solved by fixed-point iteration (Celik et al. 2008, eq. 3), nan when the
-    differences are zero
+    differences are zero or the iteration breaks down (equal differences of the same sign give p = 0, where
+    r ** p - s is zero)
     """
     e21, e32 = phi2 - phi1, phi3 - phi2
     if e21 == 0 or e32 == 0:
         return float('nan')
     s = math.copysign(1, e32 / e21)
     p = abs(math.log(abs(e32 / e21))) / math.log(r21)
-    for _ in range(iterations):
-        q = math.log((r21 ** p - s) / (r32 ** p - s))
-        p = abs(math.log(abs(e32 / e21)) + q) / math.log(r21)
+    try:
+        for _ in range(iterations):
+            q = math.log((r21 ** p - s) / (r32 ** p - s))
+            p = abs(math.log(abs(e32 / e21)) + q) / math.log(r21)
+    except (ZeroDivisionError, ValueError):
+        return float('nan')
     return p
 
 
