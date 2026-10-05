@@ -215,6 +215,9 @@ def main():
         if not args.dry_run:
             stamp.write_text(f"{time.time():.3f}\n")
         top_up(root, slurm, dataset, args)
+        if not args.dry_run:
+            import publish_status  # the dashboard (production only, at most every status.every_min minutes)
+            publish_status.maybe_publish(root, slurm, dataset)
 
 
 def top_up(root, slurm, dataset, args):
