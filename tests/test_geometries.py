@@ -89,9 +89,9 @@ def test_check_geometry(config):
     assert not check_geometry(square + [0, 47], domain, placement)              # 3 mm from the top wall
     assert not check_geometry(square - [45, 0], domain, placement)              # 55 mm from the inlet
     assert not check_geometry(square + [70, 0], domain, placement)              # 140 mm from the outlet
-    tall = np.array([[100, 30], [150, 30], [150, 85], [100, 85]], dtype=float)  # blockage 55 / 120 = 0.46
+    tall = np.array([[100, 30], [150, 30], [150, 79], [100, 79]], dtype=float)  # blockage 49 / 120 = 0.41
     assert not check_geometry(tall, domain, placement)
-    assert check_geometry(tall + [[0, 0], [0, 0], [0, -2], [0, -2]], domain, placement)  # 53 / 120 = 0.44
+    assert check_geometry(tall + [[0, 0], [0, 0], [0, -2], [0, -2]], domain, placement)  # 47 / 120 = 0.39
 
 
 def test_circle_outline_has_arc_points(config):

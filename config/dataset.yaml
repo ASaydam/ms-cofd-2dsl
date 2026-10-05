@@ -23,7 +23,7 @@ placement:
   min_wall_gap: 5       # mm between the obstacle and the top / bottom walls
   min_inlet_gap: 60     # mm between the inlet and the obstacle
   min_outlet_gap: 150   # mm between the obstacle and the outlet
-  max_blockage: 0.45    # height of the bounding box / channel height; above it the flow is not steady (pilot)
+  max_blockage: 0.40    # height of the bounding box / channel height; above it the flow is not always steady (pilots)
   max_attempts: 1000    # drawing stops with an error after this many invalid obstacles
 
 # characteristic mesh length (gmsh "size") for every resolution, in meters
