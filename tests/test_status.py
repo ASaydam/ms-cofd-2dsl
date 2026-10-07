@@ -34,7 +34,8 @@ def test_collect_and_history_row(tmp_path):
     assert runs['base_lu']['done'] == 1 and runs['base_lu']['running'] == 1 and runs['base_lu']['target'] == 2
     assert runs['16x']['target'] == 2 and runs['16x']['failed'] == 1 and result['reserves'] == 0
     assert runs['base_lu']['done_1h'] == 1 and runs['base_lu']['done_24h'] == 2
-    assert runs['base_lu']['core_hours'] == 0.65 and runs['base_lu']['end_time'] == 1
+    # the run of the dropped case counts in the compute, not as a not converged case of the dataset
+    assert runs['base_lu']['core_hours'] == 0.65 and runs['base_lu']['end_time'] == 0
     assert result['failures'][0]['case'] == names[0] and result['interrupted'] == 0
 
     row = publish_status.history_row(result)
@@ -150,4 +151,5 @@ def test_rerun_counts_with_its_last_run_and_held_tasks(tmp_path):
     result = status.collect(tmp_path, slurm, dataset, jobs={}, used=1.0, backlog=0.0, now=now, running=[])
     runs = {r['run']: r for r in result['runs']}
     assert runs['0.25x']['end_time'] == 0 and runs['0.25x']['core_hours'] == round(1300 / 3600, 2)
+    assert runs['0.25x']['rerun_converged'] == 1 and runs['base_lu']['rerun_converged'] == 0
     assert runs['16x']['held'] == 1 and runs['4x']['held'] == 0

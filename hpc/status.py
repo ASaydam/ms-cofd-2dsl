@@ -238,6 +238,8 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
         rows = summaries[run] = list(csv.DictReader(open(summary))) if summary.exists() else []
         hours = sum(float(row['execution_time_s'] or 0) for row in rows) / 3600
         finished = [t for t in (parse_time(row.get('finished', '')) for row in rows) if t]
+        latest = {row['case']: row for row in rows}
+        capped = {row['case'] for row in rows if row['status'] == 'end_time'}
         for row in rows[-15:]:
             if parse_time(row.get('finished', '')):
                 recent.append((parse_time(row['finished']), run, row))
@@ -248,8 +250,12 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
             'done': counts['done'], 'running': queued['RUNNING'], 'pending': queued['PENDING'],
             'submitted': counts['submitted'], 'failed': counts['failed'],
             'held': sum(1 for r, case in held if r == run and case in members),
-            # a task run again (higher cap, other settings) counts with its last run; the compute counts every run
-            'end_time': sum(row['status'] == 'end_time' for row in {row['case']: row for row in rows}.values()),
+            # not converged: cases of the dataset whose last run stopped at its cap (a task run again with a higher cap
+            # or other settings counts with its last run; dropped cases are in unsteady); the compute counts every run
+            'end_time': sum(1 for case, row in latest.items() if case in members and row['status'] == 'end_time'),
+            # converged when run again after stopping at the cap
+            'rerun_converged': sum(1 for case, row in latest.items() if case in members and case in capped
+                                   and row['status'] == 'converged'),
             'core_hours': round(hours, 2), 'mean_hours': round(hours / len(rows), 4) if rows else None,
             **{f'done_{h}h': sum(t > now - timedelta(hours=h) for t in finished) for h in (1, 6, 24)}})
     status['core_hours'] = round(sum(r['core_hours'] for r in status['runs']), 1)
@@ -353,6 +359,9 @@ def main():
             print(f"  {f['run']:8s} {f['case']:28s} {f['reason'][:150]}")
     if status['interrupted']:
         print(f"\n{status['interrupted']} tasks without a job (interrupted), topup.py submits them again")
+    again = [f"{r['rerun_converged']} {r['run']}" for r in status['runs'] if r['rerun_converged']]
+    if again:
+        print(f"\nconverged when run again after stopping at the cap: {', '.join(again)}")
     held = [f"{r['held']} {r['run']}" for r in status['runs'] if r['held']]
     if held:
         print(f"\non hold (hold.txt, not submitted): {', '.join(held)}")
