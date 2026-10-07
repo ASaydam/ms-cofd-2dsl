@@ -62,3 +62,13 @@ finished pilot case whose 1 mm run converged, the 0.5 and 0.25 mm runs converged
 - Initialization check (running): 6 cases (4 nearly symmetric and centred obstacles near the blockage limit, 2
   ordinary ones) solved on the 0.5 and 0.25 mm meshes from the 1 mm solution (as in the production) and from rest;
   arrays and attributes compared with `validation/compare_init.py`.
+- 2 mm initialization check (running, data root `init-check-2mm`): 27 2 mm runs converged only when started from
+  their 1 mm solution with SIMPLE and under-relaxation (template `second-order-relaxed`, decisions 2026-10-06/07).
+  4 of them are solved again with the same template from rest (`0.25x_scratch`, cap 50,000):
+  - normal_left_triangle_0271, which was stuck at 3.4e-2 with SIMPLEC;
+  - larger_left_triangle_0296, the highest blockage (0.399);
+  - larger_circle_0279, the only circle;
+  - normal_left_triangle_0107, which converged after only 575 iterations.
+
+  Both are compared with `python validation/compare_init.py <root> 0.25x`. Equal fields would show that the solution
+  does not depend on the starting point.
