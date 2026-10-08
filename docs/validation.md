@@ -72,3 +72,7 @@ finished pilot case whose 1 mm run converged, the 0.5 and 0.25 mm runs converged
 
   Both are compared with `python validation/compare_init.py <root> 0.25x`. Equal fields would show that the solution
   does not depend on the starting point.
+
+  Result (2026-10-08): all 4 converged from rest, after 6,909 to 14,576 iterations (575 to 6,157 from the 1 mm
+  solution). RMS difference of the fields at most 0.0010 % (u_x), 0.0067 % (u_y), 0.0005 % (p); attributes at most
+  0.0008 % (base pressure). The solution does not depend on the starting point.
