@@ -23,7 +23,7 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         15000;  // cap, a case that reaches it did not converge
+endTime         45000;  // cap, a case that reaches it did not converge (15000 until 12 Oct 2026)
 
 deltaT          1;
 
