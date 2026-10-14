@@ -55,6 +55,10 @@ ATTRIBUTES_SCRIPT = REPO_ROOT / 'openfoam' / 'scripts' / 'openfoam_attributes.sh
 SUMMARY_FIELDS = ['case', 'status', 'iterations', 'execution_time_s', 'clock_time_s', 'peak_memory_kb', 'cells',
                   'host', 'cpu_model', 'node_cpus_allocated', 'slurm_job_id', 'finished']
 
+# fields of every written time step (ascii, writeFormat of the templates), each ends with OpenFOAM's closing line
+TIME_FIELDS = ('U', 'p', 'phi')
+CLOSING_LINE = b'// ******'
+
 
 class Task:
     def __init__(self, run, case):
@@ -170,6 +174,15 @@ class Task:
             return status
         continued = (self.folder / 'log.simpleFoam').exists()
         if continued:
+            # a time step that was being written when the job was stopped (time limit) is removed, the run continues
+            # from the one before; recorded in dropped_times (provenance)
+            partial = partial_time(self.folder)
+            while partial:
+                shutil.rmtree(self.folder / partial)
+                with open(self.folder / 'dropped_times', 'a') as file:
+                    file.write(f"{partial} {os.environ.get('SLURM_JOB_ID', '')}\n")
+                print(f"{self.run} {self.case}: time step {partial} was not written completely, removed", flush=True)
+                partial = partial_time(self.folder)
             self.shell(['foamDictionary', 'system/controlDict', '-entry', 'startFrom', '-set', 'latestTime'],
                        'log.foamDictionary')
         # /usr/bin/time -v adds the peak memory (Maximum resident set size) of every run to log.time
@@ -250,6 +263,8 @@ class Task:
             'mesh_variant': (self.folder / 'mesh_variant').read_text().strip()
             if (self.folder / 'mesh_variant').exists() else '',
             'end_time_override': self.end_time_override(),
+            'dropped_times': (self.folder / 'dropped_times').read_text().split('\n')[:-1]
+            if (self.folder / 'dropped_times').exists() else [],
             'init_from': self.settings.get('init_from') or '', 'case_settings': self.case_settings,
             'peak_memory_kb': max(peaks) if peaks else None, 'timings_s': self.timings,
             'host': platform.node().split('.')[0], 'cpu_model': cpu,
@@ -316,6 +331,26 @@ def time_folder_name(case_folder, value):
         except ValueError:
             continue
     raise FileNotFoundError(f"no time folder {value} in {case_folder}")
+
+
+def partial_time(case_folder):
+    """
+    name of the latest time folder when it was not written completely (a field missing, or a field file cut off
+    before OpenFOAM's closing comment line: the job was stopped while writing), else None
+    """
+    try:
+        name = time_folder_name(case_folder, latest_time(case_folder))
+    except RuntimeError:  # no time step written yet
+        return None
+    for field in TIME_FIELDS:
+        path = Path(case_folder) / name / field
+        if not path.is_file():
+            return name
+        with open(path, 'rb') as file:
+            file.seek(max(0, path.stat().st_size - 200))
+            if CLOSING_LINE not in file.read():
+                return name
+    return None
 
 
 def main():
