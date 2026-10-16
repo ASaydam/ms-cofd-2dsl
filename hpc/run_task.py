@@ -292,6 +292,8 @@ class Task:
         """the base_lu solution is removed when the 4x and 16x runs of the case are done"""
         if not self.config['runs'][self.run].get('init_from'):  # a run started from it by case_settings.txt only
             return
+        if not self.seed.exists():  # released before: a run continued after the other run of the case was done
+            return
         (self.seed / f"done_{self.run}").touch()
         users = [run for run, settings in self.config['runs'].items() if settings.get('init_from') == 'base_lu']
         if all((self.seed / f"done_{run}").exists() for run in users):
@@ -300,6 +302,16 @@ class Task:
     # ------------------------------------------------------------------------------------------------- the task
 
     def execute(self):
+        # a task submitted again after it finished (topup.py read a stale state: BeeGFS listings on other nodes can lag
+        # behind) only sets its state again; folders left by such a submission are removed
+        record = finished_record(self.results, self.case, self.end_time_override())
+        if record:
+            shutil.rmtree(self.attributes_folder, ignore_errors=True)
+            shutil.rmtree(self.folder, ignore_errors=True)
+            self.release_seed()  # in case the earlier job stopped before it
+            print(f"{self.run} {self.case}: finished before by job {record['slurm_job_id']}, nothing to do", flush=True)
+            return record
+
         self.timed('setup', self.create_case)
         self.map_fields()
         status = self.solve()
@@ -320,6 +332,23 @@ class Task:
         shutil.rmtree(self.folder, ignore_errors=True)
         self.release_seed()
         return record
+
+
+def finished_record(results, case, end_time=None):
+    """
+    the provenance of a task whose results are complete from an earlier job (written last, after the upload of the
+    archive), else None; a run that stopped at a cap raised since in iterations.txt is not finished
+    (hpc/continue_runs.py moves the provenance of a continued run to results/<run>/superseded first)
+    """
+    path = Path(results) / f"{case}_provenance.json"
+    if not path.exists():
+        return None
+    record = json.loads(path.read_text())
+    if 'upload' not in record.get('timings_s', {}):
+        return None
+    if record['status'] != 'converged' and end_time is not None and float(record['iterations'] or 0) < end_time:
+        return None
+    return record
 
 
 def time_folder_name(case_folder, value):
@@ -357,7 +386,7 @@ def main():
     run, case = sys.argv[1], sys.argv[2]
     try:
         record = Task(run, case).execute()
-        ledger.set_state(run, case, 'done', f"{record['status']} {record['iterations']} {os.environ.get('SLURM_JOB_ID', '')}")
+        ledger.set_state(run, case, 'done', f"{record['status']} {record['iterations']} {record['slurm_job_id']}")
         print(f"{run} {case}: {record['status']} after {record['iterations']} iterations")
     except Exception as error:
         traceback.print_exc()
