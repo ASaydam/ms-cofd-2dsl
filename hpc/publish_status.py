@@ -1,13 +1,15 @@
 """
 Publishes the status of the production (hpc/status.py) to the GitHub repository of the dashboard. topup.py calls it
-after every call, it publishes at most every status.every_min minutes (config/slurm.yaml) and only for the production
-data root (MSCOFD_HOME):
+after every call, it publishes at most every status.every_min minutes (config/slurm.yaml) for the production data root
+(MSCOFD_HOME), to the branch status.branch. A validation data root publishes only when its own slurm.yaml has a status
+block with another branch (the page shows it with ?set=<branch without "data-">); it can never write to the branch of
+the production:
 
     status.json    the latest status
     history.csv    one line per publication: time, finished tasks per run, running and pending jobs, quota, cases
                    without a steady solution
 
-The repository is cloned to <MSCOFD_HOME>/status-repo (branch status.branch) and pushed over SSH with a deploy key
+The repository is cloned to <data root>/status-repo (branch status.branch) and pushed over SSH with a deploy key
 that can write only to this repository: <MSCOFD_HOME>/config/github_status_key, with the host keys of github.com in
 config/github_known_hosts (hpc/git_ssh.sh). Errors are printed and never stop the caller.
 
@@ -50,10 +52,9 @@ def history_row(status):
 def publish(root, slurm, dataset):
     """collects the status, writes status.json and a line of history.csv in the clone, commits and pushes"""
     settings = slurm['status']
-    home = Path(os.environ['MSCOFD_HOME'])
-    repository = home / 'status-repo'
+    repository = Path(root) / 'status-repo'
     if not (repository / '.git').exists():
-        git(home, 'clone', '-q', '--branch', settings['branch'], '--single-branch', settings['repo'], str(repository))
+        git(root, 'clone', '-q', '--branch', settings['branch'], '--single-branch', settings['repo'], str(repository))
         git(repository, 'config', 'user.name', 'KUACC status')
         git(repository, 'config', 'user.email', 'status@ms-cofd-2dsl.invalid')
 
@@ -74,13 +75,21 @@ def publish(root, slurm, dataset):
     return status
 
 
+def allowed(root, home, settings):
+    """the production root publishes to its branch; any other root only to a branch of its own"""
+    if Path(root).resolve() == Path(home).resolve():
+        return True
+    production, _ = topup.load_settings()   # config/slurm.yaml of the repository
+    return settings.get('branch') not in (None, '', (production.get('status') or {}).get('branch'))
+
+
 def maybe_publish(root, slurm, dataset, force=False):
     """publishes when status is configured, root is the production data root and the last publication is older than
     status.every_min minutes; never raises"""
     try:
         settings = slurm.get('status')
         home = os.environ.get('MSCOFD_HOME')
-        if not settings or not home or Path(root).resolve() != Path(home).resolve():
+        if not settings or not home or not allowed(root, home, settings):
             return
         stamp = Path(root) / 'state' / 'status.last'
         if not force and stamp.exists() and time.time() - stamp.stat().st_mtime < 60 * settings['every_min']:

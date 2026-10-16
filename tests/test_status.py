@@ -153,3 +153,23 @@ def test_rerun_counts_with_its_last_run_and_held_tasks(tmp_path):
     assert runs['0.25x']['end_time'] == 0 and runs['0.25x']['core_hours'] == round(1300 / 3600, 2)
     assert runs['0.25x']['rerun_converged'] == 1 and runs['base_lu']['rerun_converged'] == 0
     assert runs['16x']['held'] == 1 and runs['4x']['held'] == 0
+
+
+def test_residual_control_of_the_templates():
+    from pathlib import Path
+
+    templates = Path(__file__).resolve().parent.parent / 'openfoam' / 'case-templates'
+    assert status.residual_control(templates / 'second-order' / '16x') == {'p': 1e-6, 'U': 1e-6}
+    assert status.residual_control(templates / 'second-order-loose' / '16x') == {'p': 1e-2, 'U': 1e-3}
+    assert status.residual_control(templates / 'missing') == {'p': 1e-6, 'U': 1e-6}
+
+
+def test_only_the_production_publishes_to_its_branch(tmp_path):
+    home = tmp_path / 'home'
+    audit = home / 'loose-audit'
+    audit.mkdir(parents=True)
+    branch = topup.load_settings()[0]['status']['branch']
+    assert publish_status.allowed(home, home, {'branch': branch})
+    assert not publish_status.allowed(audit, home, {'branch': branch})       # inherited from config/slurm.yaml
+    assert not publish_status.allowed(audit, home, {})
+    assert publish_status.allowed(audit, home, {'branch': 'data-loose-audit'})

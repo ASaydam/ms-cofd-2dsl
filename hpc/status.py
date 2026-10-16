@@ -28,7 +28,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger  # noqa: E402
 import topup  # noqa: E402
 
-LABELS = {'0.25x': '2 mm', 'base_fo': '1 mm, first order', 'base_lu': '1 mm', '4x': '0.5 mm', '16x': '0.25 mm'}
+LABELS = {'0.25x': '2 mm', 'base_fo': '1 mm, first order', 'base_lu': '1 mm', '4x': '0.5 mm', '16x': '0.25 mm',
+          # loose-criterion audit (validation/loose_audit)
+          'base_lu_loose_scratch': '1 mm, loose, from rest', '16x_loose': '0.25 mm, loose, from 1 mm',
+          '16x_loose_scratch': '0.25 mm, loose, from rest'}
 
 # simpleFoam log and controlDict of a case folder
 RE_TIME = re.compile(r"^Time = ([\d.eE+-]+)\s*$", re.MULTILINE)
@@ -37,6 +40,8 @@ RE_EXECUTION = re.compile(r"^ExecutionTime = ([\d.eE+-]+) s", re.MULTILINE)
 RE_END = re.compile(r"^End\s*$", re.MULTILINE)
 RE_END_TIME = re.compile(r"^endTime\s+([\d.eE+-]+)\s*;", re.MULTILINE)
 TARGET_DECADES = 6   # residualControl 1e-6 for U and p (system/fvSolution of the templates)
+RE_TOLERANCE = re.compile(r"^\s*(p|U)\s+([\d.eE+-]+)\s*;", re.MULTILINE)
+RE_CONTROL = re.compile(r"^\s*residualControl\s*\{([^}]*)\}", re.MULTILINE)
 # pace of a running job (dashboard): the residual is judged after the first WARMUP part of the iteration cap (a run
 # started from mapped fields first rises for ~1000 iterations); slower than FLAT decades per 1000 iterations is flat
 # (a decade in more than 20 000 iterations); a log not written for FROZEN_S seconds belongs to a stuck job
@@ -135,7 +140,9 @@ def job_progress(folder, mapped, now=None, tail=1 << 16):
         residuals           initial residuals of Ux, Uy and p of the last iteration; residual: the largest of them
         s_per_iteration     solver seconds per iteration
         decades_per_1000    trend of log10(residual) per 1000 iterations (least squares over the last ~100 iterations)
-        eta_iterations/_s   iterations and solver seconds until the residual reaches 1e-6 at that trend
+        eta_iterations/_s   iterations and solver seconds until the residual reaches the residualControl of the case
+                            (1e-6 in the dataset) at that trend
+        target_decades      -log10 of the U tolerance of residualControl (6 in the dataset, 3 in the loose audit)
         log_age_s           seconds since the log was last written (a stuck job stops writing)
 
     Only the last `tail` bytes of the log are read (~110 iterations of a 0.25 mm run).
@@ -177,6 +184,10 @@ def job_progress(folder, mapped, now=None, tail=1 << 16):
     control = folder / 'system' / 'controlDict'
     cap = RE_END_TIME.search(control.read_text(errors='replace')) if control.exists() else None
     progress['cap'] = int(float(cap.group(1))) if cap else None
+    tolerances = residual_control(folder)
+    progress['target_decades'] = round(-math.log10(tolerances['U']), 2)
+    # how far the stop is: the largest residual relative to its tolerance (p and U can differ, as in the loose audit)
+    margin = max(residuals[f] / tolerances['p' if f == 'p' else 'U'] for f in ('Ux', 'Uy', 'p'))
 
     # speed and trend within the last solver run (the execution time starts again when a run is continued)
     start = max([i for i in range(1, len(samples)) if samples[i][2] < samples[i - 1][2]], default=0)
@@ -186,10 +197,20 @@ def job_progress(folder, mapped, now=None, tail=1 << 16):
         _, slope = fit_line([s[0] for s in recent], [math.log10(max(max(s[1].values()), 1e-30)) for s in recent])
         progress['decades_per_1000'] = round(1000 * slope, 4)
         if slope < 0:
-            left = max((math.log10(progress['residual']) + TARGET_DECADES) / -slope, 0)
+            left = max(math.log10(max(margin, 1e-30)) / -slope, 0)
             progress['eta_iterations'] = round(left)
             progress['eta_s'] = round(left * progress['s_per_iteration'])
     return progress
+
+
+def residual_control(folder):
+    """{'p': tolerance, 'U': tolerance} of residualControl in system/fvSolution of a case, 10^-TARGET_DECADES if not found"""
+    default = {'p': 10.0 ** -TARGET_DECADES, 'U': 10.0 ** -TARGET_DECADES}
+    path = Path(folder) / 'system' / 'fvSolution'
+    if not path.exists():
+        return default
+    block = RE_CONTROL.search(path.read_text(errors='replace'))   # the dictionary, not a mention in a comment
+    return {**default, **{field: float(value) for field, value in RE_TOLERANCE.findall(block.group(1) if block else '')}}
 
 
 def pace(job):
@@ -224,7 +245,8 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
     members = set(active) - set(unsteady)      # the cases of the dataset
     cases = len(members)
 
-    status = {'generated': now.isoformat(timespec='seconds'), 'cases': cases, 'runs': [], 'unsteady': unsteady,
+    status = {'generated': now.isoformat(timespec='seconds'), 'set': dataset.get('set', ''), 'cases': cases,
+              'runs': [], 'unsteady': unsteady,
               'reserves': len(reserves),
               'window': (topup.current_window(slurm, now) or {}).get('qos', 'none'),
               'queue': {'running': sum(s == 'RUNNING' for _, s, _ in jobs.values()),

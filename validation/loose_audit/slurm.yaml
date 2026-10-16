@@ -21,3 +21,9 @@ run_priority: [base_lu, base_lu_loose_scratch, 16x_loose, 16x_loose_scratch]
 footprint:
   pause_used_gib: 600
   pause_backlog_gib: 30
+# dashboard of this root: https://asaydam.github.io/ms-cofd-2dsl-status/?set=loose-audit (hpc/publish_status.py; a
+# validation root can publish only to a branch of its own, never to the production's)
+status:
+  repo: git@github.com:ASaydam/ms-cofd-2dsl-status.git
+  branch: data-loose-audit
+  every_min: 5
