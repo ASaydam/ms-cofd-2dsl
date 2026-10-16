@@ -55,6 +55,14 @@ finished pilot case whose 1 mm run converged, the 0.5 and 0.25 mm runs converged
 
 ## Planned
 
+- Loose-criterion audit (data root `loose-audit`, job names `m2l_...`, set `validation-loose-audit` in every
+  provenance): what the stopping criterion of common practice (residualControl p 1e-2, U 1e-3; template
+  `second-order-loose`, which differs from `second-order` only there) does to the 0.25 mm labels and to the
+  coarse-to-fine gap. 105 test cases, 7 per size and family drawn from 7 bins of the iterations of their converged
+  0.25 mm run, and one ood_blockage case per family and size (`python validation/select_loose_audit.py <production
+  root> <audit root>`, which records each case's inclusion probability). Runs: base_lu (converged, the start of
+  16x_loose), 16x_loose from the 1 mm solution as in the production, 16x_loose_scratch and base_lu_loose_scratch
+  from rest. The converged runs come from the production results, which the audit only reads.
 - VTK resampling (`extraction/resample_vtk.py`) against ParaView's Resample To Image on the same OpenFOAM results.
 - DFG 2D-1 benchmark (Schäfer & Turek 1996, confined cylinder, Re = 20) with the production settings on three meshes:
   drag coefficient 5.57–5.59, lift coefficient 0.0104–0.0110, pressure difference 0.1172–0.1176, recirculation

@@ -1,0 +1,23 @@
+# Loose-criterion audit, data root hpc_run/ms-cofd-2dsl/loose-audit (copied there by validation/select_loose_audit.py);
+# replaces these entries of config/slurm.yaml for that root. Its own job names (m2l_...), so the topup and status of the
+# production never count or submit these jobs, and the topup of this root never sees the production's.
+job_name_prefix: m2l
+windows:
+  - qos: asaydam_oct26
+    start: "2026-10-05T00:00:00+03:00"
+    end: "2026-10-19T00:00:00+03:00"
+    max_queued: 120
+  - qos: users
+    start: "2026-01-01T00:00:00+03:00"
+    end: "2027-12-31T00:00:00+03:00"
+    max_queued: 30
+# the loose runs stop after a few hundred iterations at most; the limits leave room for the meshing of 0.25 mm
+runs:
+  base_lu:               {time: "01:00:00", mem: 1G}
+  base_lu_loose_scratch: {time: "01:00:00", mem: 1G}
+  16x_loose:             {time: "08:00:00", mem: 4G}
+  16x_loose_scratch:     {time: "12:00:00", mem: 4G}
+run_priority: [base_lu, base_lu_loose_scratch, 16x_loose, 16x_loose_scratch]
+footprint:
+  pause_used_gib: 600
+  pause_backlog_gib: 30

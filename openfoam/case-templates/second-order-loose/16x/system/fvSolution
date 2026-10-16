@@ -1,0 +1,64 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  plus                                  |
+|   \\  /    A nd           | Web:      www.OpenFOAM.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Solver settings for converged steady solutions: SIMPLEC (consistent), GAMG for p, residualControl 1e-6.
+// The converged solution does not depend on these settings, only on the discretisation (fvSchemes).
+//
+// second-order-loose: the second-order template with only residualControl changed, to p 1e-2 and U 1e-3 (the
+// stopping criterion of common practice), for the loose-criterion audit (validation/select_loose_audit.py).
+// Every other file is the same as in second-order. Not used for the dataset.
+
+solvers
+{
+    p
+    {
+        solver          GAMG;
+        smoother        GaussSeidel;
+        tolerance       1e-8;
+        relTol          0.01;
+    }
+
+    U
+    {
+        solver          smoothSolver;
+        smoother        symGaussSeidel;
+        tolerance       1e-8;
+        relTol          0.1;
+    }
+}
+
+SIMPLE
+{
+    nNonOrthogonalCorrectors 1;
+    consistent      yes;
+
+    residualControl
+    {
+        p               1e-2;
+        U               1e-3;
+    }
+}
+
+relaxationFactors
+{
+    equations
+    {
+        U               0.9;
+    }
+}
+
+// ************************************************************************* //

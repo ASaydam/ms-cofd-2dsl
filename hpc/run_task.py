@@ -254,6 +254,8 @@ class Task:
         cells = next((line.split(':')[1].strip() for line in open(self.folder / 'log.checkMesh')
                       if line.strip().startswith('cells:')), '') if (self.folder / 'log.checkMesh').exists() else ''
         record = {
+            # a validation data root names its set in its dataset.yaml, so a stray file is recognisable
+            **({'set': self.config['set']} if self.config.get('set') else {}),
             'run': self.run, 'case': self.case, 'resolution': self.resolution, 'templates': self.settings['templates'],
             'status': status['status'], 'iterations': status.get('last_iteration'),
             'solver_runs': status.get('runs'), 'execution_time_s': status.get('execution_time'),

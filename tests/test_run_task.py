@@ -42,3 +42,12 @@ def test_finished_record_only_for_complete_results(tmp_path):
     assert finished_record(tmp_path, 'case') is not None  # at its cap, not raised
     assert finished_record(tmp_path, 'case', 10000) is not None
     assert finished_record(tmp_path, 'case', 30000) is None  # cap raised since
+
+
+def test_loose_audit_bins_have_nearly_equal_counts():
+    from validation.select_loose_audit import bins_of
+
+    bins = bins_of([f"c{i:02d}" for i in range(26)])
+    assert [len(b) for b in bins] == [4, 4, 4, 4, 4, 3, 3]
+    assert sum(bins, []) == [f"c{i:02d}" for i in range(26)]  # consecutive, nothing lost
+    assert [len(b) for b in bins_of(['a', 'b', 'c'])] == [1, 1, 1]
