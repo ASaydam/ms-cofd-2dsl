@@ -1,0 +1,25 @@
+# Reproduction check, data root hpc_run/ms-cofd-2dsl/repro-check (copied there by validation/check_reproduction.py
+# setup); replaces these entries of config/slurm.yaml for that root. Its own job names (m2r_...), so the topup and
+# status of the production never count or submit these jobs, and the topup of this root never sees the production's.
+job_name_prefix: m2r
+windows:
+  - qos: asaydam_oct26
+    start: "2026-10-05T00:00:00+03:00"
+    end: "2026-10-19T00:00:00+03:00"
+    max_queued: 20
+  - qos: users
+    start: "2026-01-01T00:00:00+03:00"
+    end: "2027-12-31T00:00:00+03:00"
+    max_queued: 20
+runs:
+  base_lu: {time: "02:00:00", mem: 1G}
+  0.25x:   {time: "02:00:00", mem: 1G}
+run_priority: [base_lu, 0.25x]
+footprint:
+  pause_used_gib: 600
+  pause_backlog_gib: 30
+# a validation root publishes only to a branch of its own, never to the production's (hpc/publish_status.py)
+status:
+  repo: git@github.com:ASaydam/ms-cofd-2dsl-status.git
+  branch: data-repro-check
+  every_min: 5

@@ -1,0 +1,10 @@
+# Reproduction check (validation/check_reproduction.py, docs/validation.md): a few cases solved again from rest with
+# the settings of the production, to compare with the released results. Copied into the data root of the check by
+# `python validation/check_reproduction.py setup`; replaces these top-level entries of config/dataset.yaml for that
+# root only. The production root is only read.
+
+set: validation-repro-check   # written into the provenance of every run of this root
+
+runs:
+  0.25x:   {resolution: 0.25x, templates: second-order}
+  base_lu: {resolution: base,  templates: second-order}
