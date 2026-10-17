@@ -35,6 +35,8 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
 - **Surface distributions**: pressure and wall shear coefficients along the obstacle.
 - **Peak values** (peak wall shear, peak vorticity) are included but flagged: at sharp corners the exact solution is
   singular, so they keep growing with refinement and are not mesh-independent targets.
+- **Stagnation (front) pressure** is included but flagged as well: the stagnation point often sits on a corner, and
+  the value did not converge with the mesh in about two thirds of the cases.
 
 ### Array channels
 
