@@ -53,6 +53,14 @@ container cannot start (excluded), duplicate jobs from locks that do not hold ac
 finished pilot case whose 1 mm run converged, the 0.5 and 0.25 mm runs converged too (pilot 1, by 5 Oct 04:30:
 36 at 0.5 mm, 12 at 0.25 mm). Resources: see docs/decisions.md.
 
+## 4. Stop before the time limit (2026-10-17)
+
+Data root `limit-test` (validation/limit_test, job names `m2t_...`): larger_diamond_0231 on 1 mm and 0.5 mm with
+15-minute jobs and a stop margin of 300 s. The 0.5 mm run was stopped twice after 10:00 by its job, submitted again by
+the same job's topup.py within a second, and converged in the third job, after 1,653 iterations in 3 solver runs
+(production: 1,653 in one). Against the production run: attributes equal to 2.3e-7 (relative, base pressure), arrays
+to an RMS difference of 2.4e-10 of the field RMS, same mesh (171,736 cells, variant 0).
+
 ## Planned
 
 - Loose-criterion audit (data root `loose-audit`, job names `m2l_...`, set `validation-loose-audit` in every
