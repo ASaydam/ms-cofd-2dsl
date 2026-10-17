@@ -83,16 +83,23 @@ def allowed(root, home, settings):
     return settings.get('branch') not in (None, '', (production.get('status') or {}).get('branch'))
 
 
+def idle(root, slurm, dataset):
+    """no job of this data root in the queue but finishing ones: the last update of a run set, published at once"""
+    jobs, _ = topup.our_jobs(slurm['job_name_prefix'])
+    states = ledger.read_states(list(dataset['runs']), root)
+    return all(status_module.finishing(states, run, case) for run, case in jobs)
+
+
 def maybe_publish(root, slurm, dataset, force=False):
-    """publishes when status is configured, root is the production data root and the last publication is older than
-    status.every_min minutes; never raises"""
+    """publishes when status is configured, the root may publish (allowed) and the last publication is older than
+    status.every_min minutes or no job is left (idle); never raises"""
     try:
         settings = slurm.get('status')
         home = os.environ.get('MSCOFD_HOME')
         if not settings or not home or not allowed(root, home, settings):
             return
         stamp = Path(root) / 'state' / 'status.last'
-        if not force and stamp.exists() and time.time() - stamp.stat().st_mtime < 60 * settings['every_min']:
+        if not force and stamp.exists() and time.time() - stamp.stat().st_mtime < 60 * settings['every_min']                 and not idle(root, slurm, dataset):
             return
         stamp.touch()
         status = publish(root, slurm, dataset)

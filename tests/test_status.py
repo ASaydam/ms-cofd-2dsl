@@ -173,3 +173,17 @@ def test_only_the_production_publishes_to_its_branch(tmp_path):
     assert not publish_status.allowed(audit, home, {'branch': branch})       # inherited from config/slurm.yaml
     assert not publish_status.allowed(audit, home, {})
     assert publish_status.allowed(audit, home, {'branch': 'data-loose-audit'})
+
+
+def test_finishing_jobs_are_not_counted(tmp_path):
+    # the job of a done task is still in the queue while it runs its last topup.py: not running any more
+    names = fake_root(tmp_path)
+    slurm, dataset = topup.load_settings(tmp_path)
+    jobs = {('base_lu', names[2]): ('3', 'RUNNING', 'q'), ('base_lu', names[0]): ('1', 'RUNNING', 'q'),
+            ('16x', names[0]): ('4', 'RUNNING', 'q')}
+    running = [{'job': '1', 'run': 'base_lu', 'case': names[0], 'node': 'be02', 'elapsed_s': 60, 'limit_s': 7200}]
+    now = datetime.fromisoformat("2026-10-05T10:00:00+03:00")
+    result = status.collect(tmp_path, slurm, dataset, jobs=jobs, used=1.0, backlog=0.0, now=now, running=running)
+    assert result['queue'] == {'running': 1, 'pending': 0} and result['nodes'] == {}
+    running_of = {r['run']: r['running'] for r in result['runs']}
+    assert running_of['base_lu'] == 1 and running_of['16x'] == 0

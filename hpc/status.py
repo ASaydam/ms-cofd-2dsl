@@ -233,6 +233,11 @@ def pace(job):
     return 'ok'
 
 
+def finishing(states, run, case):
+    """True when the task of a job in the queue is already done or failed (the job is about to end)"""
+    return states.get((run, case), ('', ''))[0] in ('done', 'failed')
+
+
 def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None, now=None, running=None):
     """all numbers of the status as a dictionary (jobs, nodes, used, backlog, running: given in tests, else asked from
     SLURM and BeeGFS)"""
@@ -241,6 +246,9 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
     states = ledger.read_states(runs, root)
     if jobs is None:
         jobs, _ = topup.our_jobs(slurm['job_name_prefix'])
+    # a job whose task is done or failed is only finishing: its last step is this status (topup.py at the end of
+    # hpc/job_task.sh), so it is not counted, or the last job of a run set would stay on the dashboard as running
+    jobs = {task: job for task, job in jobs.items() if not finishing(states, *task)}
     active, unsteady, reserves = topup.dataset_cases(root, dataset, states, topup.cases_file_of(root))
     members = set(active) - set(unsteady)      # the cases of the dataset
     cases = len(members)
@@ -287,6 +295,7 @@ def collect(root, slurm, dataset, jobs=None, nodes=None, used=None, backlog=None
     status['backlog_gib'] = round(topup.backlog_gib(root) if backlog is None else backlog, 2)
     status['pause_gib'] = limits['pause_used_gib']
     running = running_jobs(slurm['job_name_prefix']) if running is None else running
+    running = [job for job in running if not finishing(states, job['run'], job['case'])]
     status['nodes'] = dict(Counter(job['node'] for job in running)) if nodes is None else nodes
 
     # the running jobs of this data root with their progress (a pilot with the same job names is left out: its
