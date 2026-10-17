@@ -55,7 +55,8 @@ fi
 export MSCOFD_IMAGE
 
 # one line per job in state/<run>/<case>.jobs (cost study: queue wait, whole job, failed attempts; sacct is not
-# available to users): "start <job> <node> SubmitTime=... StartTime=..." now, "end <job> <exit status> <time>" at the end
+# available to users): "start <job> <node> SubmitTime=... StartTime=..." now, "end <job> <exit status or stopped>
+# <time>" at the end
 jobs_log="$MSCOFD_DATA_ROOT/state/$run/$case.jobs"
 slurm_times=$(scontrol show job "${SLURM_JOB_ID:-0}" 2> /dev/null | grep -oE "(SubmitTime|StartTime)=[^ ]+" | tr '\n' ' ')
 echo "start ${SLURM_JOB_ID:-} $(hostname -s) ${slurm_times}$(date -Iseconds)" >> "$jobs_log"
@@ -89,10 +90,30 @@ fi
 MSCOFD_NODE_ALLOCATED=$(scontrol show node "$(hostname -s)" 2> /dev/null | grep -o "CPUAlloc=[0-9]*" | cut -d= -f2)
 export MSCOFD_NODE_ALLOCATED
 
-apptainer exec --bind "$MSCOFD_BIND" --home "$MSCOFD_HOME/container/home" "$MSCOFD_IMAGE" \
+# the task is stopped MSCOFD_STOP_MARGIN_S seconds (default 600) before the time limit of the job: a job killed by
+# SLURM never reaches the topup.py at the end, and when no other job of the data root is left, nothing would submit
+# the task again. A stopped task is marked failed ("time limit") and the topup.py below submits it again (up to
+# max_attempts submissions); the run continues from its last complete time step (hpc/run_task.py)
+source "$MSCOFD_REPO/hpc/time_left.sh"
+left=$(seconds_left "$(squeue -h -j "${SLURM_JOB_ID:-0}" -o %L 2> /dev/null)")
+margin=${MSCOFD_STOP_MARGIN_S:-600}
+run_for=0   # seconds until the stop; 0: no stop of its own (time limit not known, or too close)
+if [ -n "$left" ] && [ "$left" -gt $((margin + 60)) ]; then
+    run_for=$((left - margin))
+fi
+
+# timeout sends TERM to the whole process group (apptainer, run_task, simpleFoam) and KILL a minute later
+timeout --kill-after=60 "$run_for" apptainer exec --bind "$MSCOFD_BIND" --home "$MSCOFD_HOME/container/home" \
+    "$MSCOFD_IMAGE" \
     bash -c 'source /opt/mscofd/activate.sh && cd "$MSCOFD_REPO" && python -m hpc.run_task "$0" "$1"' "$run" "$case"
 status=$?
-echo "end ${SLURM_JOB_ID:-} $status $(date -Iseconds)" >> "$jobs_log"
+ended=$status
+if [ "$run_for" -gt 0 ] && { [ $status -eq 124 ] || [ $status -eq 137 ]; }; then
+    "$MSCOFD_HOST_PYTHON" "$MSCOFD_REPO/hpc/ledger.py" set "$run" "$case" failed \
+        "time limit: stopped by job ${SLURM_JOB_ID:-} $margin s before its limit, continues in the next submission"
+    ended=stopped
+fi
+echo "end ${SLURM_JOB_ID:-} $ended $(date -Iseconds)" >> "$jobs_log"
 rm -rf "$lock"
 
 # the task sets its state; a container that did not start leaves it running, topup.py submits it again

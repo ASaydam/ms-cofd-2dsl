@@ -1,0 +1,20 @@
+# Time-limit test, data root hpc_run/ms-cofd-2dsl/limit-test; replaces these entries of config/slurm.yaml. Submit with
+# MSCOFD_STOP_MARGIN_S=300 in the environment of topup.py (passed on to every job): a 15-minute job stops its task
+# after ~10 minutes. Production 0.5 mm run of the case: 1,653 iterations, 30 minutes, i.e. ~4 jobs here.
+job_name_prefix: m2t
+windows:
+  - qos: asaydam_oct26
+    start: "2026-10-05T00:00:00+03:00"
+    end: "2026-10-19T00:00:00+03:00"
+    max_queued: 5
+  - qos: users
+    start: "2026-01-01T00:00:00+03:00"
+    end: "2027-12-31T00:00:00+03:00"
+    max_queued: 5
+runs:
+  base_lu: {time: "00:15:00", mem: 1G}
+  4x:      {time: "00:15:00", mem: 2G}
+max_attempts: 10
+footprint:
+  pause_used_gib: 600
+  pause_backlog_gib: 30

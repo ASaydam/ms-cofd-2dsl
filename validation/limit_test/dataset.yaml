@@ -1,0 +1,10 @@
+# Time-limit test (docs/validation.md): one case solved on 1 mm and 0.5 mm as in the production, with job time limits
+# far too short for the 0.5 mm run (validation/limit_test/slurm.yaml), so the run has to be stopped before the limit
+# by hpc/job_task.sh, submitted again by the job's own topup.py, and continued from its last time step several times.
+# Copied into the data root hpc_run/ms-cofd-2dsl/limit-test; replaces these top-level entries of config/dataset.yaml.
+
+set: validation-limit-test   # written into the provenance of every run of this root
+
+runs:
+  base_lu: {resolution: base, templates: second-order}
+  4x:      {resolution: 4x,   templates: second-order, init_from: base_lu}
