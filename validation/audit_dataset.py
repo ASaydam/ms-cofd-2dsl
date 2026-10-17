@@ -14,7 +14,9 @@ Checks:
     states       every run of every case done and converged
     provenance   status converged, final initial residuals of U and p <= 1e-6, mesh OK, templates, init_from and cap
                  as set by config/dataset.yaml, case_settings.txt and iterations.txt; the iterations agree with the
-                 state marker and the latest row of summary.csv
+                 state marker and the latest row of summary.csv. Runs before ec727c7 (2026-10-06) did not record
+                 init_from: their mapFields step (timings_s) shows the start instead; a continued run whose record
+                 holds only the steps of its last job is a warning, to be checked in its archive (log.mapFields)
     archives     one live row of archive_index.csv per run (the newest is kept when there are more); with --remote
                  the size and MD5 of every live archive on the remote, and remote files without a row
     arrays       shape and dtype of every level, finite values, 0 inside the obstacle, geometry channels consistent;
@@ -22,8 +24,9 @@ Checks:
                  volume flux through the cross-sections away from the inlet and the obstacle
     attributes   every attribute present and finite, signs, cells and time as in the provenance; the flags of the
                  data card (reverse flow at the outlet, recirculation length below 2 mm)
-    levels       the attributes of every level against the 0.25 mm level: robust outliers per run, size and family,
-                 and the median differences
+    levels       the attributes of every level against the 0.25 mm level: robust outliers per run, size and family
+                 (info), a warning for a run with outliers in OUTLIER_ATTRIBUTES or more attributes (a case or seed
+                 mixed up shows in all of them), and the median differences
     mesh_study   tools/mesh_study.py on every case: type of convergence, observed order and GCI of every attribute
     splits       the fixed splits (dataset/splits.py): counts, per size and family; written to splits.csv
     geometry     the .geo files of every case written again from the seed: identical to those of the data root
@@ -68,6 +71,10 @@ FLUX_TOLERANCE = 0.01       # largest relative deviation of the volume flux of a
 FLUX_START_MM = 20          # cross-sections closer to the inlet are left out (developing flow, corner points)
 OUTLIER_MADS = 10           # levels: a difference this many (scaled) median absolute deviations from the median
 OUTLIER_FLOOR = 0.05        # and at least this far (relative) is an outlier
+OUTLIER_ATTRIBUTES = 3      # outliers in this many attributes of one run make a warning (a mixed-up case); fewer are
+                            # the physics of that case (first audit, 2026-10-17: at most 2 in any run of any case)
+CIRCLE_TOLERANCE = 1.5      # the manifest describes a circle by the polygon through its corners and arc mid-points,
+                            # the mesh follows the splines through them: area and centroid differ a little more
 SHORT_RECIRCULATION_MM = 2  # data card flag: a recirculation shorter than this is hardly resolved on the 2 mm grid
 LISTED = 20                 # findings listed per check in report.md (all of them are in findings.csv)
 
@@ -78,6 +85,9 @@ POSITIVE = ['Fx', 'Fx_pressure', 'mean_wall_shear', 'max_wall_shear', 'dissipati
 # attributes compared between the levels: the peak values grow with the refinement at sharp corners (singular, see
 # README), they are no mesh-independent targets
 LEVEL_ATTRIBUTES = [name for name in mesh_study.ATTRIBUTES if name not in ('max_wall_shear', 'peak_vorticity')]
+# left out of the outlier test, their median differences are still reported: the front (stagnation) pressure did not
+# converge with the mesh in 2,947 of 4,500 cases (first audit), the stagnation point often sits on a corner
+NO_OUTLIER_TEST = ['front_pressure']
 
 
 class Audit:
@@ -179,6 +189,7 @@ def check_provenance(audit, root, dataset, runs, members, states):
     audit.summary['provenance'] = {}
     for run in runs:
         latest, rows_per_case = latest_summary_rows(root, run)
+        not_recorded = 0
         for case in members:
             path = case_files(root, run, case)['provenance']
             if not path.exists():
@@ -201,7 +212,14 @@ def check_provenance(audit, root, dataset, runs, members, states):
                 problems.append(f"mesh_ok {record.get('mesh_ok')}")
             if record.get('templates') != settings['templates']:
                 problems.append(f"templates {record.get('templates')}, expected {settings['templates']}")
-            if (record.get('init_from') or '') != (settings.get('init_from') or ''):
+            if record.get('init_from') is None and settings.get('init_from'):
+                # recorded only since ec727c7: the mapFields step shows the start; a continued run's record holds
+                # only the steps of its last job
+                not_recorded += 1
+                if 'mapFields' not in (record.get('timings_s') or {}):
+                    audit.add('warning', 'provenance', f"init_from not recorded and no mapFields step in the record "
+                                                       f"(continued run?): check log.mapFields in the archive", run, case)
+            elif (record.get('init_from') or '') != (settings.get('init_from') or ''):
                 problems.append(f"init_from '{record.get('init_from')}', expected '{settings.get('init_from') or ''}'")
             if record.get('end_time_override') != caps.get((run, case)):
                 problems.append(f"cap {record.get('end_time_override')}, iterations.txt {caps.get((run, case))}")
@@ -234,6 +252,7 @@ def check_provenance(audit, root, dataset, runs, members, states):
             'mesh_variants': dict(Counter((r.get('mesh_variant') or '').split(' ')[0] for r in found)),
             'cpu_models': dict(Counter(r.get('cpu_model') for r in found)),
             'summary_rows_more_than_one': sum(1 for case in members if rows_per_case[case] > 1),
+            'init_from_not_recorded': not_recorded,
         }
     audit.summary['code_revisions'] = dict(revisions)
     audit.summary['container_digests'] = dict(digests)
@@ -343,7 +362,8 @@ def obstacle_and_flux(sample, obstacle, row, domain, inlet):
     area = len(i) * hx * hy
     # the obstacle is convex: its perimeter is at most that of its bounding box; every grid point on the border
     # counts at most half a cell too much or too little
-    area_tolerance = (float(row['bbox_width']) + float(row['bbox_height'])) * max(hx, hy)
+    factor = CIRCLE_TOLERANCE if row['geometry'] == 'circle' else 1.0
+    area_tolerance = factor * (float(row['bbox_width']) + float(row['bbox_height'])) * max(hx, hy)
     centroid = math.hypot(i.mean() * hx - float(row['centroid_x']), j.mean() * hy - float(row['centroid_y']))
 
     columns = np.arange(nx)
@@ -352,7 +372,7 @@ def obstacle_and_flux(sample, obstacle, row, domain, inlet):
     ux = sample[0][used].astype(float)
     flux = hy * (ux[:, 1:-1].sum(axis=1) + 0.5 * (ux[:, 0] + ux[:, -1]))      # trapezoidal rule, m/s mm
     deviation = float(np.abs(flux / (inlet * domain['height']) - 1).max()) if used.any() else 0.0
-    return abs(area - float(row['area'])), area_tolerance, centroid, max(hx, hy), deviation
+    return abs(area - float(row['area'])), area_tolerance, centroid, factor * max(hx, hy), deviation
 
 
 def check_arrays(audit, root, dataset, runs, members, manifest, records):
@@ -438,20 +458,25 @@ def check_attributes(audit, root, runs, members, records):
     return values
 
 
-def level_difference(name, value, reference, reference_fx, inlet):
+def level_difference(name, value, reference, reference_fx, inlet, height):
     """
     difference of an attribute from its value on the reference level, on a scale that stays meaningful when the
-    reference is close to 0: lift relative to the drag, the wake velocity relative to the inlet velocity, the stagnation
-    and base pressure relative to the dynamic pressure; None when there is no scale (no recirculation)
+    reference is close to 0: lift and the parts of the drag relative to the drag (the friction part of a blunt
+    obstacle is small), the wake velocity relative to the inlet velocity, the stagnation and base pressure relative to
+    the dynamic pressure, the recirculation relative to at least the obstacle height (its square for the area: a short
+    recirculation changes much in relative terms); None when there is no scale
+    :param height: height of the obstacle's bounding box (mm)
     """
-    if name.startswith('Fy'):
+    if name.startswith('Fy') or name in ('Fx_pressure', 'Fx_viscous'):
         scale = abs(reference_fx)
     elif name == 'wake_min_u_x':
         scale = inlet
     elif name in ('front_pressure', 'base_pressure'):
         scale = 0.5 * inlet ** 2
-    elif name.startswith('recirculation'):
-        scale = abs(reference) if abs(reference) >= 1 else 0   # below 1 mm / 1 mm^2 there is no recirculation
+    elif name == 'recirculation_length_mm':
+        scale = max(abs(reference), height)
+    elif name == 'recirculation_area_mm2':
+        scale = max(abs(reference), height ** 2)
     else:
         scale = abs(reference)
     return (value - reference) / scale if scale > 0 else None
@@ -476,13 +501,16 @@ def check_levels(audit, runs, members, manifest, values, reference='16x'):
                 value, ref = as_float(coarse.get(name)), as_float(fine.get(name))
                 if value is None or ref is None:
                     continue
-                difference = level_difference(name, value, ref, as_float(fine.get('Fx')) or 0, inlet)
+                difference = level_difference(name, value, ref, as_float(fine.get('Fx')) or 0, inlet,
+                                              float(manifest[case]['bbox_height']))
                 if difference is not None:
                     differences.setdefault((run, name), {})[case] = difference
 
-    medians = {}
+    medians, outliers = {}, {}
     for (run, name), by_case in sorted(differences.items()):
         medians.setdefault(run, {})[name] = round(100 * float(np.median(np.abs(list(by_case.values())))), 3)
+        if name in NO_OUTLIER_TEST:
+            continue
         classes = {}
         for case, difference in by_case.items():
             classes.setdefault((manifest[case]['size'], manifest[case]['geometry']), {})[case] = difference
@@ -492,9 +520,17 @@ def check_levels(audit, runs, members, manifest, values, reference='16x'):
             spread = 1.4826 * np.median(np.abs(numbers - median))
             for case, difference in cases.items():
                 if abs(difference - median) > max(OUTLIER_MADS * spread, OUTLIER_FLOOR):
-                    audit.add('warning', 'levels', f"{name}: {100 * difference:+.1f} % against {reference}, "
-                                                   f"class median {100 * median:+.1f} %", run, case)
-    audit.summary['levels'] = {'reference': reference, 'median_abs_difference_%': medians}
+                    outliers.setdefault((run, case), []).append(name)
+                    audit.add('info', 'levels', f"{name}: {100 * difference:+.1f} % against {reference}, "
+                                                f"class median {100 * median:+.1f} %", run, case)
+    for (run, case), names in sorted(outliers.items()):
+        if len(names) >= OUTLIER_ATTRIBUTES:
+            audit.add('warning', 'levels', f"outliers in {len(names)} attributes ({', '.join(names)}): a case or "
+                                           f"seed mixed up?", run, case)
+    audit.summary['levels'] = {'reference': reference, 'median_abs_difference_%': medians,
+                               'outliers_per_attribute': dict(Counter(f"{run} {name}" for (run, _), names
+                                                                      in outliers.items() for name in names)),
+                               'runs_with_outliers': dict(Counter(len(names) for names in outliers.values()))}
 
 
 def check_mesh_study(audit, root, members):

@@ -136,6 +136,12 @@ def test_audit_finds_the_faults(tmp_path, monkeypatch):
     for k in range(1, 5):
         moved[f"x{k}"] = float(manifest[first][f"x{k}"]) + 20
     np.savez_compressed(root / 'results' / '4x' / f"{first}.npz", sample=fake_sample(moved, *GRIDS['4x']), time=900.0)
+    for run, case, timings in (('16x', reserve, {'mapFields': 50.0}), ('4x', first, {})):  # before init_from existed
+        path = root / 'results' / run / f"{case}_provenance.json"
+        record = json.loads(path.read_text())
+        del record['init_from']
+        record['timings_s'] = timings
+        path.write_text(json.dumps(record))
     path = root / 'results' / '0.25x' / f"{first}_attributes.json"               # negative drag
     path.write_text(path.read_text().replace('"Fx": 1.0', '"Fx": -1.0'))
     path = root / 'geometry' / 'geo-files' / '16x' / f"{first}.geo"              # changed by hand
@@ -170,3 +176,35 @@ def test_audit_finds_the_faults(tmp_path, monkeypatch):
     assert found('error', 'archives', '16x', reserve, 'remote MD5 md5-other')
     assert not any(f['check'] == 'archives' and f['level'] == 'error' and f['run'] != '16x' for f in findings)
     assert summary['archives']['duplicate_live_rows'] == 1
+    assert found('warning', 'provenance', '4x', first, 'init_from not recorded')    # no mapFields step: archive
+    assert not any(f['check'] == 'provenance' and (f['run'], f['case']) == ('16x', reserve) for f in findings)
+    assert summary['provenance']['16x']['init_from_not_recorded'] == 1
+
+
+def test_levels_warn_only_for_many_outliers(monkeypatch):
+    from validation import audit_dataset
+
+    rows = {f"normal_circle_{i:04d}": {'size': 'normal', 'geometry': 'circle', 'bbox_height': '30'} for i in range(12)}
+    values = {}
+    for i, case in enumerate(rows):
+        values[('16x', case)] = {name: 1.0 for name in mesh_study.ATTRIBUTES}
+        values[('base_lu', case)] = {name: 1.0 + 0.001 * i for name in mesh_study.ATTRIBUTES}
+    values[('base_lu', 'normal_circle_0003')].update(Fx=1.3, dissipation=1.3, mean_wall_shear=1.3)   # mixed up
+    values[('base_lu', 'normal_circle_0007')].update(dissipation=1.3)                             # one attribute
+    values[('base_lu', 'normal_circle_0009')].update(front_pressure=5.0)                           # not tested
+    audit = audit_dataset.Audit()
+    audit_dataset.check_levels(audit, ['base_lu', '16x'], list(rows), rows, values)
+    warnings = [(f['case'], f['message']) for f in audit.findings if f['level'] == 'warning']
+    assert len(warnings) == 1 and warnings[0][0] == 'normal_circle_0003' and '3 attributes' in warnings[0][1]
+    assert any(f['case'] == 'normal_circle_0007' and f['level'] == 'info' for f in audit.findings)
+    assert not any(f['case'] == 'normal_circle_0009' for f in audit.findings)
+    assert audit.summary['levels']['median_abs_difference_%']['base_lu']['front_pressure'] > 0
+
+
+def test_level_difference_scales():
+    from validation.audit_dataset import level_difference
+
+    assert level_difference('Fx_viscous', 0.11, 0.10, 2.0, 0.1, 30) == pytest.approx(0.005)    # of the drag
+    assert level_difference('recirculation_length_mm', 3.0, 2.0, 1.0, 0.1, 30) == pytest.approx(1 / 30)
+    assert level_difference('recirculation_length_mm', 60.0, 50.0, 1.0, 0.1, 30) == pytest.approx(0.2)
+    assert level_difference('Fx', 1.1, 1.0, 1.0, 0.1, 30) == pytest.approx(0.1)
