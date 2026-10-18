@@ -61,16 +61,109 @@ the same job's topup.py within a second, and converged in the third job, after 1
 (production: 1,653 in one). Against the production run: attributes equal to 2.3e-7 (relative, base pressure), arrays
 to an RMS difference of 2.4e-10 of the field RMS, same mesh (171,736 cells, variant 0).
 
+## 5. Dataset audit (2026-10-17)
+
+**What**: `validation/audit_dataset.py --remote` on the production root, every run of every case:
+- members and states;
+- provenance (residuals, templates, starting fields, caps);
+- archives (one live row per run; the size and MD5 of every archive on the remote);
+- arrays (shape, finite values, obstacle points, geometry channels, obstacle area and centroid against the manifest,
+  volume flux of the cross-sections);
+- attributes, and the attributes of every level against 0.25 mm;
+- mesh study, splits, `.geo` files written again from the seed, and leftovers.
+
+**Pass criterion**: no error.
+
+**Result: passed** (final run, revision a7bf2e8, after the cleanup of the archive index and the seeds,
+decisions 2026-10-17).
+
+| | |
+|---|---|
+| Errors | 0 |
+| Warnings | 8: 16x runs of 5–6 Oct continued in a second job, whose provenance does not record the start (init_from was recorded from ec727c7 on). Their archives contain `log.mapFields` and the `mapped` marker, so every one started from its base_lu solution; the other 244 runs of that period show their mapFields step in the provenance |
+| Archives | 22,500 live, every size and MD5 equal on the remote, 1.56 TB |
+| Arrays | volume flux of the cross-sections within 0.69 % (2 mm) and 0.022 % (0.25 mm) of the inlet flux; obstacle area within 0.67 % (2 mm) and 0.02 % (0.25 mm) of the manifest (median) |
+| Geometry | every `.geo` file written again from the seed is identical |
+| Levels | no case with outliers in 3 or more attributes (a mixed-up case); 19 single-attribute outliers, all physical: the first-order 1 mm wake velocity of smaller circles and larger diamonds (5–7 %), the base pressure of 2 cases |
+
+Report: `audit/2026-10-17-final` of the data root. The first run (same day, before the fixes of a4ce01b) had 252
+errors, all of them the missing init_from of the runs above, and warnings from limits that were too tight.
+
+## 6. Dataset files v1.0.0 (2026-10-17/18)
+
+**What**: `dataset/build_dataset.py` at f71b088, into `dataset/v1.0.0` of the data root, then read back.
+
+**Pass criterion**: the splits equal those of the audit, the same case in row i of every run, every checksum correct.
+
+**Result: passed.**
+- 4,500 cases (18 reserve cases in use, 18 dropped).
+- Splits: train 3,085, val 385, test 386, ood_blockage 224, ood_position 204, ood_rotation 216.
+- The splits equal the audit's `splits.csv` for all cases.
+- In every split, the case_name of the 5 runs is identical and in the order of `metadata.parquet`.
+- `checksums.md5` lists all 36 files, and every MD5 is correct: 104,026,682,495 bytes.
+- MD5 of `checksums.md5` itself: 817adefb132205f30bf633710f554dc2.
+
+## 7. Reproduction check (2026-10-18)
+
+**What**: `validation/check_reproduction.py` (8f6e78d).
+
+*archives*: the archives of 5 runs restored from the remote. Their arrays were made again with VTK and their
+attributes with OpenFOAM:
+- 16x larger_circle_0279, continued over 4 solver runs;
+- 4x normal_right_triangle_0009, continued to 30,000 iterations;
+- base_lu normal_left_triangle_0020;
+- 0.25x normal_left_triangle_0016, relaxed template, started from base_lu;
+- base_fo normal_diamond_0001.
+
+*solved*: 3 cases solved again from rest with the production settings, at 0.25x and base_lu:
+- normal_rectangle_0001;
+- normal_right_triangle_0247, blockage 0.3998;
+- normal_circle_0001.
+
+**Pass criterion**: arrays and attributes of the archives identical; fields of the cases solved again within 1e-5.
+
+**Result: passed, bit for bit.**
+- All 5 archives give back arrays and attributes identical to the released ones (largest difference 0).
+- All 6 runs solved again need the same number of iterations (173 to 1,207).
+- Their fields and attributes are identical to the released ones (largest difference 0).
+
+## 8. Loose stopping criterion (2026-10-16/17)
+
+**What**: data root `loose-audit` (job names `m2l_...`, set `validation-loose-audit` in every provenance).
+
+What the stopping criterion of common practice does to the labels and to the coarse-to-fine gap:
+- residualControl p 1e-2, U 1e-3;
+- template `second-order-loose`, which differs from `second-order` only there.
+
+Cases: 105 test cases, 7 per size and family, drawn from 7 bins of the iterations of their converged 0.25 mm run,
+plus 8 ood_blockage cases (`validation/select_loose_audit.py`, which records each case's inclusion probability).
+
+Runs:
+- 16x_loose, from the 1 mm solution, as the production starts;
+- 16x_loose_scratch and base_lu_loose_scratch, from rest.
+
+They are compared with the converged production runs (`validation/compare_loose.py`, weighted by 1 / inclusion
+probability).
+
+**Result** (test cases, median; 90th percentile of |·| in brackets):
+
+| Run | Stops after | Converged run needs | RMS change of u_x, % of U_in | Drag | Recirculation length |
+|---|---|---|---|---|---|
+| base_lu_loose_scratch | 233 | 571 | 0.55 | +0.01 % (0.0) | 0.00 % (0.1) |
+| 16x_loose | 8 | 3,353 | 0.32 | +1.33 % (2.3) | −1.53 % (2.9) |
+| 16x_loose_scratch | 355 | 3,353 | 18.67 | +0.50 % (7.8) | −32.6 % (67.2) |
+
+Coarse-to-fine gap (relative RMS of u_x, 1 mm upsampled bicubically to 0.25 mm):
+- converged: 0.47 %;
+- 16x_loose against the converged 1 mm: 0.36 %;
+- both levels loose from rest: 17.1 %.
+
+The loose criterion takes the label away from the converged solution, in a direction set by the start. From the 1 mm
+solution the label stays close to that solution, and the gap looks smaller than it is. From rest the recirculation is
+too short, and the gap is overstated 36 times.
+
 ## Planned
 
-- Loose-criterion audit (data root `loose-audit`, job names `m2l_...`, set `validation-loose-audit` in every
-  provenance): what the stopping criterion of common practice (residualControl p 1e-2, U 1e-3; template
-  `second-order-loose`, which differs from `second-order` only there) does to the 0.25 mm labels and to the
-  coarse-to-fine gap. 105 test cases, 7 per size and family drawn from 7 bins of the iterations of their converged
-  0.25 mm run, and one ood_blockage case per family and size (`python validation/select_loose_audit.py <production
-  root> <audit root>`, which records each case's inclusion probability). Runs: base_lu (converged, the start of
-  16x_loose), 16x_loose from the 1 mm solution as in the production, 16x_loose_scratch and base_lu_loose_scratch
-  from rest. The converged runs come from the production results, which the audit only reads.
 - VTK resampling (`extraction/resample_vtk.py`) against ParaView's Resample To Image on the same OpenFOAM results.
 - DFG 2D-1 benchmark (Schäfer & Turek 1996, confined cylinder, Re = 20) with the production settings on three meshes:
   drag coefficient 5.57–5.59, lift coefficient 0.0104–0.0110, pressure difference 0.1172–0.1176, recirculation
