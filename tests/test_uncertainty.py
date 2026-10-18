@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from tools.uncertainty import scale_of, uncertainty
+from tools.uncertainty import ARRAY_ATTRIBUTES, RUNS, array_study, scale_of, uncertainty
 
 H = np.array([1.0, 2.0, 4.0, 8.0])
 
@@ -33,6 +33,29 @@ def test_scatter_widens_the_uncertainty():
     scattered = smooth + np.array([0.0, 0.004, -0.004, 0.004])
     u_smooth, u_scattered = run(smooth, scattered)['U']
     assert u_scattered > u_smooth
+
+
+def test_array_study_reads_every_level(tmp_path):
+    pd = pytest.importorskip("pandas")
+    cases = ['normal_circle_0001', 'normal_circle_0002']
+    for k, run in enumerate(RUNS.values()):
+        table = {'case_name': cases[::-1] if k else cases}             # row order differs between the files
+        for name in ARRAY_ATTRIBUTES:
+            fine = {'normal_circle_0001': 1.0, 'normal_circle_0002': 2.0}
+            table[f'{name}_16x_array'] = [fine[c] for c in table['case_name']]
+            table[f'{name}_{run}_array'] = [fine[c] + 0.1 * (k + 1) for c in table['case_name']]
+        pd.DataFrame(table).to_csv(tmp_path / f"flow_attributes_{run}_16x.csv", index=False)
+
+    study = array_study(tmp_path).set_index(['attribute', 'case_name'])
+    assert len(study) == 2 * len(ARRAY_ATTRIBUTES)
+    row = study.loc[('dissipation', 'normal_circle_0002')]
+    assert (row['16x'], row['4x'], row['base'], row['0.25x']) == pytest.approx((2.0, 2.1, 2.2, 2.3))
+
+    table = pd.read_csv(tmp_path / "flow_attributes_4x_16x.csv")
+    table['dissipation_16x_array'] += 1                                # a 16x value that disagrees
+    table.to_csv(tmp_path / "flow_attributes_4x_16x.csv", index=False)
+    with pytest.raises(ValueError):
+        array_study(tmp_path)
 
 
 def test_scales():

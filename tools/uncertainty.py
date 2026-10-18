@@ -6,9 +6,16 @@ scatter and are not in the asymptotic range, as the four independent unstructure
 (the three-level GCI of tools/mesh_study.py is undefined in a third or more of the cases, docs/validation.md).
 
     python -m tools.uncertainty <dataset folder> <output folder>
+    python -m tools.uncertainty <dataset folder> <output folder> --arrays <folder of flow_attributes_<run>_16x.csv>
 
 Reads mesh_study.parquet (the values of every level) and metadata.parquet (the cells of every level) of a dataset
 folder (dataset/build_dataset.py), writes label_uncertainty.parquet / .csv to the output folder and prints a summary.
+Its values are the OpenFOAM values on the simulation mesh (source "openfoam").
+
+With --arrays, the values are instead the attributes computed from the arrays of every level on its own grid
+(tools/flow_attributes.py --coarse <run> --fine 16x --output <folder>, for the runs 0.25x, base_lu and 4x), the
+quantities a network's prediction is scored on. The resampling to the grid loses a different amount at each level, so
+these converge differently from the OpenFOAM values. Writes label_uncertainty_arrays.parquet / .csv (source "array").
 
 For every case and attribute (phi_1 = 0.25 mm, ..., phi_4 = 2 mm; h_i = sqrt(N_1 / N_i), so h_1 = 1):
 
@@ -37,6 +44,9 @@ import numpy as np
 
 LEVELS = ['16x', '4x', 'base', '0.25x']              # fine to coarse, all second order
 CELLS = ['16x.cells', '4x.cells', 'base_lu.cells', '0.25x.cells']
+RUNS = {'4x': '4x', 'base': 'base_lu', '0.25x': '0.25x'}                         # level of LEVELS: run of its csv
+ARRAY_ATTRIBUTES = ['recirculation_length_mm', 'recirculation_area_mm2', 'flow_split_upper', 'dp_inlet_outlet',
+                    'dissipation', 'peak_vorticity', 'mean_vorticity', 'wake_min_u_x']   # tools/flow_attributes.py
 INLET_VELOCITY = 0.1                                 # m/s, the case templates (validation/audit_dataset.py reads it)
 P_GRID = np.round(np.concatenate([np.arange(-3.0, -0.02, 0.01), np.arange(0.03, 8.0001, 0.01)]), 2)
 
@@ -154,23 +164,55 @@ def scale_of(name, value, drag):
     return np.abs(value)
 
 
-def main():
+def array_study(folder):
+    """
+    the array attributes of every level in the layout of mesh_study.parquet (case_name, attribute, 16x, 4x, base,
+    0.25x), from the csv files of tools/flow_attributes.py (each has the coarse run and 16x)
+    """
     import pandas as pd
 
-    if len(sys.argv) != 3:
-        sys.exit("usage: python -m tools.uncertainty <dataset folder> <output folder>")
-    folder, output = Path(sys.argv[1]), Path(sys.argv[2])
+    tables = {level: pd.read_csv(Path(folder) / f"flow_attributes_{run}_16x.csv").set_index('case_name')
+              for level, run in RUNS.items()}
+    cases = tables['4x'].index
+    frames = []
+    for name in ARRAY_ATTRIBUTES:
+        fine = [tables[level][f'{name}_16x_array'].reindex(cases) for level in RUNS]
+        if any(not np.allclose(f, fine[0], equal_nan=True) for f in fine[1:]):
+            raise ValueError(f"{name}: the 16x array values differ between the csv files")
+        frame = pd.DataFrame({'case_name': cases, 'attribute': name, '16x': fine[0].to_numpy()})
+        for level, run in RUNS.items():
+            frame[level] = tables[level][f'{name}_{run}_array'].reindex(cases).to_numpy()
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
+
+
+def main():
+    import argparse
+    import pandas as pd
+
+    parser = argparse.ArgumentParser(description="Numerical uncertainty of every attribute and case")
+    parser.add_argument('dataset')
+    parser.add_argument('output')
+    parser.add_argument('--arrays', help="folder of the flow_attributes_<run>_16x.csv files: the array attributes")
+    args = parser.parse_args()
+    folder, output = Path(args.dataset), Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    study = pd.read_parquet(folder / 'mesh_study.parquet')
+    study = array_study(args.arrays) if args.arrays else pd.read_parquet(folder / 'mesh_study.parquet')
     cells = pd.read_parquet(folder / 'metadata.parquet', columns=['case_name'] + CELLS).set_index('case_name')
     study = study.join(cells, on='case_name')
+    if study[CELLS].isna().any().any():
+        sys.exit("cases without the cells of every level in metadata.parquet")
     h = np.sqrt(study[CELLS[0]].to_numpy()[:, None] / study[CELLS].to_numpy())
     phi = study[LEVELS].to_numpy(dtype=float)
     result = uncertainty(h, phi)
-    drag = study[['case_name']].join(study[study.attribute == 'Fx'].set_index('case_name')['16x'].rename('drag'),
-                                     on='case_name')['drag'].to_numpy()
+    if (study.attribute == 'Fx').any():
+        drag = study[['case_name']].join(study[study.attribute == 'Fx'].set_index('case_name')['16x'].rename('drag'),
+                                         on='case_name')['drag'].to_numpy()
+    else:                                       # array attributes: none is scaled by the drag
+        drag = np.full(len(study), np.nan)
 
     table = study[['case_name', 'attribute'] + LEVELS].copy()
+    table.insert(2, 'source', 'array' if args.arrays else 'openfoam')
     table['U'], table['p'], table['method'], table['phi_0'] = result['U'], result['p'], result['method'], result['phi_0']
     scale = np.empty(len(table))
     for name in table['attribute'].unique():
@@ -179,8 +221,9 @@ def main():
     with np.errstate(divide='ignore', invalid='ignore'):
         table['U_%'] = 100 * table['U'] / scale
         table['U1_%'] = 100 * 3 * np.abs(phi[:, 0] - phi[:, 1]) / scale
-    table.to_parquet(output / 'label_uncertainty.parquet', index=False)
-    table.to_csv(output / 'label_uncertainty.csv', index=False)
+    name = 'label_uncertainty_arrays' if args.arrays else 'label_uncertainty'
+    table.to_parquet(output / f'{name}.parquet', index=False)
+    table.to_csv(output / f'{name}.csv', index=False)
 
     summary = table.groupby('attribute').agg(U_median=('U_%', 'median'), U_p95=('U_%', lambda s: s.quantile(0.95)),
                                              U1_median=('U1_%', 'median'), U1_p95=('U1_%', lambda s: s.quantile(0.95)))
