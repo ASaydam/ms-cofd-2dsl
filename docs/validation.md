@@ -100,7 +100,8 @@ errors, all of them the missing init_from of the runs above, and warnings from l
 - Splits: train 3,085, val 385, test 386, ood_blockage 224, ood_position 204, ood_rotation 216.
 - The splits equal the audit's `splits.csv` for all cases.
 - In every split, the case_name of the 5 runs is identical and in the order of `metadata.parquet`.
-- `checksums.md5` lists all 36 files, and every MD5 is correct: 104,026,682,495 bytes.
+- Every MD5 of `checksums.md5` is correct. It lists the 36 data files (104,026,680,594 bytes); with `checksums.md5`
+  itself the folder holds 37 files and 104,026,682,453 bytes (`du -sb` gives 42 bytes more: directory entries).
 - MD5 of `checksums.md5` itself: 817adefb132205f30bf633710f554dc2.
 
 ## 7. Reproduction check (2026-10-18)
@@ -162,12 +163,61 @@ The loose criterion takes the label away from the converged solution, in a direc
 solution the label stays close to that solution, and the gap looks smaller than it is. From rest the recirculation is
 too short, and the gap is overstated 36 times.
 
+## 9. DFG 2D-1 benchmark (2026-10-18)
+
+**What**: Schäfer & Turek (1996), steady flow past a cylinder in a channel at Re = 20, solved with the settings of the
+production. Data root `dfg-benchmark`, job names `m2g_...`, code in `validation/dfg/` (`run_dfg.sh`, `dfg.py compare`).
+
+- Unchanged from the production: fvSchemes and fvSolution of the template `second-order` (SIMPLEC, linearUpwind,
+  residualControl 1e-6) and the gmsh settings (Delaunay quads by recombination, one cell layer in z).
+- New: the geometry (channel 2.2 × 0.41 m, cylinder D = 0.1 m at (0.2, 0.2) as an exact circle and a patch of its own),
+  the viscosity (1e-3 m²/s) and the inlet.
+- Inlet: a fixedValue list, the parabola u = 4 U_m y (H − y) / H² with U_m = 0.3 m/s evaluated at the inlet face centres
+  (the values an exprFixedValue condition would give).
+- Three uniform meshes, D/20, D/40 and D/80. The two finer runs start from the coarse solution (mapFields), as the
+  production starts its fine runs.
+
+Quantities:
+- cD and cL from the forces function object, per unit depth;
+- Δp = p(0.15, 0.2) − p(0.25, 0.2), from the pressure of the cylinder faces, interpolated in the angle;
+- La from the zero of u_x on the line y = 0.2 behind the cylinder;
+- mesh study with `tools/mesh_study.py` (`study`).
+
+**Result**: every run stopped at residuals ≤ 1e-6 (largest u_y 9.99e-7).
+
+| Mesh | Cells | Iterations | Solver time | cD | cL | Δp | La (m) |
+|---|---|---|---|---|---|---|---|
+| D/20 | 35,965 | 410 | 54 s | 5.5848 | −0.0013 | 0.1138 | 0.08428 |
+| D/40 | 143,907 | 715 | 8 min | 5.5857 | 0.0100 | 0.1157 | 0.08433 |
+| D/80 | 575,745 | 1,977 | 1.7 h | 5.5827 | 0.0116 | 0.1166 | 0.08446 |
+| Extrapolated | | | | – | 0.0118 | 0.1175 | – |
+| Reference interval | | | | 5.57–5.59 | 0.0104–0.0110 | 0.1172–0.1176 | 0.0842–0.0852 |
+
+- cD and La: the finest mesh is inside the interval. Their changes between the meshes are not monotonic and smaller
+  than the intervals (0.05 % and 0.2 %), so they are not extrapolated.
+- Δp: the finest mesh is 0.8 % low. The extrapolated value (observed order 1.0, GCI 1.0 %) is inside.
+- cL: outside. The finest mesh gives 0.0116, 9 % above the reference value 0.010619, and the extrapolation (order
+  2.8) moves further away. The lift is 0.2 % of the drag here: the difference of 0.001 in cL is 0.02 % of cD. Reported
+  as it is, nothing tuned.
+
+Iteration error of cL (job 3197523): the forces were evaluated again on the time step kept before the last one
+(`simpleFoam -postProcess -time 1900` on D/80, `-time 700` on D/40).
+
+| Mesh | Steps | Change of cL | u_y residual | cL pressure part | cL viscous part |
+|---|---|---|---|---|---|
+| D/40 | 700 → 715 | +0.004 % | 1.12e-6 → 9.95e-7 | −0.0035 | 0.0135 |
+| D/80 | 1900 → 1977 | −0.019 % | 1.13e-6 → 9.99e-7 | 0.0029 | 0.0087 |
+
+cD does not change in its seventh digit on either mesh. If the D/80 run converges at the rate of its residual (0.888
+per 77 iterations), the change still to come is about 1.7e-5 in cL, 0.15 % of its value, far below the 9 % to the
+reference. The lift is mostly viscous here, and its split between pressure and friction changes with the mesh (the
+pressure part changes sign between D/40 and D/80). The cL deviation comes from the mesh, not from the iteration.
+
 ## Planned
 
-- VTK resampling (`extraction/resample_vtk.py`) against ParaView's Resample To Image on the same OpenFOAM results.
-- DFG 2D-1 benchmark (Schäfer & Turek 1996, confined cylinder, Re = 20) with the production settings on three meshes:
-  drag coefficient 5.57–5.59, lift coefficient 0.0104–0.0110, pressure difference 0.1172–0.1176, recirculation
-  length 0.0842–0.0852.
+- Arrays against the solver mesh, in place of a comparison with ParaView's Resample To Image (which wraps the same
+  vtkResampleToImage as `extraction/resample_vtk.py`): attributes computed from the arrays against the OpenFOAM values
+  of every case and level (`tools/flow_attributes.py --output`, 40b637f); section to follow.
 - Initialization check (running): 6 cases (4 nearly symmetric and centred obstacles near the blockage limit, 2
   ordinary ones) solved on the 0.5 and 0.25 mm meshes from the 1 mm solution (as in the production) and from rest;
   arrays and attributes compared with `validation/compare_init.py`.
