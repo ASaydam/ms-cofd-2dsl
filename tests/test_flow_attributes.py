@@ -33,6 +33,24 @@ def test_attributes_of_a_simple_wake():
     assert result['peak_vorticity'] > 0 and vorticity.shape == (NX, NY)
 
 
+def test_main_writes_only_to_the_output_folder(tmp_path, monkeypatch):
+    import sys
+    from test_check_reproduction import CASE, fields_of, write_run
+    from tools import flow_attributes, mesh_study
+
+    pytest.importorskip("scipy")
+    root, output = tmp_path / 'root', tmp_path / 'out'
+    attributes_of_run = {name: 1.0 for name in mesh_study.ATTRIBUTES}
+    write_run(root, 'base_lu', fields_of(360, 120), attributes_of_run)
+    write_run(root, '16x', fields_of(720, 240), attributes_of_run)
+    monkeypatch.setenv('MSCOFD_DATA_ROOT', str(root))
+    monkeypatch.setattr(sys, 'argv', ['flow_attributes', '--output', str(output)])
+    flow_attributes.main()
+    assert (output / 'flow_attributes_base_lu_16x.csv').exists()
+    assert not list((root / 'results').glob('*.csv'))                          # nothing written into the data root
+    assert CASE in (output / 'flow_attributes_base_lu_16x.csv').read_text()
+
+
 def test_relative_difference_and_upsample():
     assert math.isclose(relative_difference(1.1, 1.0), 10.0)
     assert math.isclose(relative_difference(0.2, 0.1, scale=2.0), 5.0)

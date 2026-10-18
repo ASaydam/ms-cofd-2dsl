@@ -128,6 +128,8 @@ def main():
     parser = argparse.ArgumentParser(description="Compare flow attributes of a coarse and a fine run")
     parser.add_argument("--coarse", default="base_lu", help="coarse run (base_lu, base_fo or 4x)")
     parser.add_argument("--fine", default="16x", help="fine run (16x or 4x)")
+    parser.add_argument("--output", help="folder of the csv file, default <data root>/results (a frozen data root is "
+                                         "only read when an output folder outside it is given)")
     args = parser.parse_args()
 
     root, domain = data_root(), load_config()['domain']
@@ -175,7 +177,7 @@ def main():
 
     if not rows:
         sys.exit(f"no case has results of both {args.coarse} and {args.fine} in {root / 'results'}")
-    output = root / 'results' / f"flow_attributes_{args.coarse}_{args.fine}.csv"
+    output = (Path(args.output) if args.output else root / 'results') / f"flow_attributes_{args.coarse}_{args.fine}.csv"
     write_csv(rows, output, list(rows[0].keys()))
 
     print(f"{len(rows)} cases. 1) {args.coarse} vs {args.fine}, (coarse - fine) / |fine| in % "
