@@ -104,6 +104,29 @@ errors, all of them the missing init_from of the runs above, and warnings from l
   itself the folder holds 37 files and 104,026,682,453 bytes (`du -sb` gives 42 bytes more: directory entries).
 - MD5 of `checksums.md5` itself: 817adefb132205f30bf633710f554dc2.
 
+**Metadata rebuild (2026-10-19), before any publication.**
+- **Why:** `<run>.init_from` was empty for runs that started from rest and for the 252 0.25 mm runs from before
+  ec727c7, which did not record their start.
+- **What:** `dataset/build_dataset.py --metadata-only` at 0b6c60a (job 3198334) wrote new `metadata.parquet`,
+  `metadata.csv` and `dataset_info.json`. `DATACARD.md` (docs/DATACARD.md at 0398659) was added. The arrays and the
+  other tables are unchanged.
+- **Checked:**
+  - Old and new metadata compared cell by cell (audit/compare_metadata_2026-10-19.py): 4,500 rows and 259 columns
+    on both sides, same rows and order.
+  - Exactly 13,725 cells differ, all in the `init_from` columns and all from empty to filled:
+    - 0.25x: 4,473 → rest;
+    - base_fo and base_lu: 4,500 → rest each;
+    - 16x: 252 → base_lu;
+    - 4x: unchanged.
+  - The only type change: base_fo / base_lu `init_from` from null to string.
+  - `dataset_info.json` only gained `metadata_rebuilt` and `metadata_builder_revision`.
+- **Release after the swap:**
+  - 37 data files (104,026,744,970 bytes) and `checksums.md5`, 38 files and 104,026,746,875 bytes;
+  - `md5sum -c` passes for all 37; the folder is read-only again;
+  - Drive matches (38 files, 0 differences).
+- **New MD5 of `checksums.md5`:** 209ebc4f85e13235bbc3e6b7f2a63243. The four files they replaced are kept in
+  `dataset/v1.0.0-metadata-f71b088/`.
+
 ## 7. Reproduction check (2026-10-18)
 
 **What**: `validation/check_reproduction.py` (8f6e78d).
