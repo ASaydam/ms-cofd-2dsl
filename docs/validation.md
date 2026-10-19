@@ -236,25 +236,98 @@ per 77 iterations), the change still to come is about 1.7e-5 in cL, 0.15 % of it
 reference. The lift is mostly viscous here, and its split between pressure and friction changes with the mesh (the
 pressure part changes sign between D/40 and D/80). The cL deviation comes from the mesh, not from the iteration.
 
-## Planned
+## 10. Starting fields (2026-10-08 and 2026-10-18)
 
-- Arrays against the solver mesh, in place of a comparison with ParaView's Resample To Image (which wraps the same
-  vtkResampleToImage as `extraction/resample_vtk.py`): attributes computed from the arrays against the OpenFOAM values
-  of every case and level (`tools/flow_attributes.py --output`, 40b637f); section to follow.
-- Initialization check (running): 6 cases (4 nearly symmetric and centred obstacles near the blockage limit, 2
-  ordinary ones) solved on the 0.5 and 0.25 mm meshes from the 1 mm solution (as in the production) and from rest;
-  arrays and attributes compared with `validation/compare_init.py`.
-- 2 mm initialization check (running, data root `init-check-2mm`): 27 2 mm runs converged only when started from
-  their 1 mm solution with SIMPLE and under-relaxation (template `second-order-relaxed`, decisions 2026-10-06/07).
-  4 of them are solved again with the same template from rest (`0.25x_scratch`, cap 50,000):
+**What**: the same meshes solved from the starting fields of the production and from rest, compared with
+`validation/compare_init.py`: RMS of the field difference over the RMS of the field (fluid points), and
+|difference| / |value| of every attribute (lift relative to the drag).
+- **2 mm** (data root `init-check-2mm`): 27 2 mm runs converged only when started from their 1 mm solution with
+  SIMPLE and under-relaxation (template `second-order-relaxed`, decisions 2026-10-06/07). 4 of them were solved again
+  with the same template from rest (`0.25x_scratch`, cap 50,000):
   - normal_left_triangle_0271, which was stuck at 3.4e-2 with SIMPLEC;
   - larger_left_triangle_0296, the highest blockage (0.399);
   - larger_circle_0279, the only circle;
   - normal_left_triangle_0107, which converged after only 575 iterations.
+- **0.5 and 0.25 mm** (data root `init-check`): 6 cases, solved from the 1 mm solution as in the production and from
+  rest (`4x_scratch`, `16x_scratch`). 4 are nearly symmetric, centred obstacles near the blockage limit and 2 are
+  ordinary: larger_rectangle_0061, larger_diamond_0069, larger_circle_0293, normal_rectangle_0166,
+  normal_left_triangle_0001 and smaller_right_triangle_0001.
 
-  Both are compared with `python validation/compare_init.py <root> 0.25x`. Equal fields would show that the solution
-  does not depend on the starting point.
+**Pass criterion**: differences of the order of the iteration error at the 10⁻⁶ stop, far below the label
+uncertainty.
 
-  Result (2026-10-08): all 4 converged from rest, after 6,909 to 14,576 iterations (575 to 6,157 from the 1 mm
-  solution). RMS difference of the fields at most 0.0010 % (u_x), 0.0067 % (u_y), 0.0005 % (p); attributes at most
-  0.0008 % (base pressure). The solution does not depend on the starting point.
+**Result: passed.**
+
+| Level | Cases | Fields, largest RMS difference | Attributes, largest difference | Iterations, mapped vs from rest |
+|---|---|---|---|---|
+| 2 mm (2026-10-08) | 4 | 0.0067 % (u_y) | 0.0008 % (base pressure) | 575–6,157 vs 6,909–14,576 |
+| 0.5 mm (job 3197680) | 6 | 0.021 % (u_y) | 0.033 % (base pressure) | 760–2,385 vs 1,217–4,782 |
+| 0.25 mm (jobs 3197680, 3197710) | 6 | 0.10 % (u_y) | 0.15 % (base pressure) | 2,466–8,142 vs 3,966–15,885 |
+
+- **Iteration error:** the differences grow on the finer meshes, as the iteration error left at the 10⁻⁶ stop does.
+  - All twelve 0.25 mm runs stopped on u_y.
+  - The two cases with the largest differences are the two whose run from rest stopped with a higher u_x residual
+    (7–9 × 10⁻⁷, against about 3 × 10⁻⁷).
+- **Against the label uncertainty:** the largest attribute difference of each 0.25 mm case is 0.3–8 % of the label
+  uncertainty of that case and attribute (section 11).
+- **The sixth 0.25 mm run from rest** (normal_left_triangle_0001) had been cancelled at a time limit on 2026-10-06.
+  It was continued to convergence on 2026-10-18 (job 3197682, 15,885 iterations).
+- **Printouts:** `init-check/compare_init_4x_16x-3197680.txt` and `init-check/compare_init_16x-3197710.txt`.
+
+The starting fields change the iterations, not the solution.
+
+## 11. Discretisation error and label uncertainty (2026-10-18)
+
+**What**:
+- The uncertainty U of every 0.25 mm label, with `tools/uncertainty.py`: the least-squares procedure of Eça &
+  Hoekstra (2014) over the four second-order levels.
+- The error of every cheaper level against the 0.25 mm label, on the same scales, with `validation/level_errors.py`
+  (`python validation/level_errors.py <dataset> <label_uncertainty.parquet>`).
+
+**Result** (median over the 4,500 cases, %; the full table with the 90th percentiles is printed by the script):
+
+| Attribute | 2 mm | 1 mm, first order | 1 mm | 0.5 mm | U of the label |
+|---|---|---|---|---|---|
+| drag | 1.10 | 3.93 | 0.76 | 0.33 | 1.45 |
+| recirculation length | 2.80 | 11.10 | 1.62 | 0.64 | 2.41 |
+| dissipation | 4.68 | 4.56 | 1.69 | 0.53 | 0.49 |
+| mean vorticity | 0.65 | 2.31 | 0.33 | 0.12 | 0.34 |
+| lift (of the drag) | 0.66 | 1.34 | 0.46 | 0.23 | 0.97 |
+
+- **The second-order levels converge towards the label.**
+- **The first-order 1 mm run differs where the flow separates:** recirculation length 11 % and drag 3.9 %.
+- **Several cheap levels are already within the label uncertainty.** The 1 mm drag error is about half the U of the
+  drag label.
+- **The three-level GCI** of `mesh_study.parquet` is undefined for 34 % of the drag labels (convergence not
+  monotonic). The meshes are independent unstructured meshes, not nested refinements, which is why the label
+  uncertainty uses the Eça–Hoekstra procedure.
+
+## 12. Arrays against the solver mesh (2026-10-18)
+
+**What**:
+- Every attribute that can be computed from the fields was computed from the arrays of every level on its own grid,
+  with `tools/flow_attributes.py --coarse <run> --fine 16x --output <folder>` (40b637f; jobs 3197503–06, all 4,500
+  cases). It was compared with the OpenFOAM value on the simulation mesh by `validation/array_vs_openfoam.py`.
+- This replaces a comparison with ParaView's Resample To Image, which wraps the same vtkResampleToImage as
+  `extraction/resample_vtk.py`.
+- Output: `audit/array-check-2026-10-18`.
+
+**Result** (median |array − OpenFOAM| / |OpenFOAM| over the cases, %):
+
+| Attribute | 2 mm | 1 mm FO | 1 mm | 0.5 mm | 0.25 mm |
+|---|---|---|---|---|---|
+| recirculation length | 2.45 | 1.41 | 1.27 | 0.62 | 0.30 |
+| recirculation area | 4.99 | 1.67 | 1.57 | 0.47 | 0.14 |
+| Δp inlet – outlet | 1.52 | 1.41 | 1.46 | 1.40 | 1.36 |
+| dissipation | 13.01 | 7.17 | 6.80 | 3.44 | 1.74 |
+| mean vorticity | 4.35 | 2.25 | 2.14 | 1.05 | 0.52 |
+| peak vorticity | 35.7 | 31.3 | 29.2 | 24.6 | 21.5 |
+
+- **Gradient quantities lose the most,** and the loss halves with every refinement. It is a systematic underestimate.
+- **The inlet – outlet Δp of the arrays is about 1.4 % low at every level.** The end columns of the grid differ from
+  the patch faces, which include the singular inlet corners.
+- **Applied to the array values of the four levels** (`tools/uncertainty.py --arrays`), the uncertainty procedure
+  gives a median U of the 0.25 mm array values of 2.94 % for dissipation and 0.90 % for mean vorticity. It is about
+  the same as on the mesh for recirculation, flow split and Δp.
+- **This measures how well the arrays represent the attributes.** It is not the uncertainty of a comparison of two
+  arrays on the same grid, where the resampling loss is common to both.

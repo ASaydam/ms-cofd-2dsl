@@ -1,3 +1,6 @@
+import csv
+import sys
+
 import numpy as np
 import pytest
 
@@ -35,27 +38,63 @@ def test_scatter_widens_the_uncertainty():
     assert u_scattered > u_smooth
 
 
+def write_csv(path, table):
+    with open(path, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(list(table))
+        writer.writerows(zip(*table.values()))
+
+
 def test_array_study_reads_every_level(tmp_path):
-    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
     cases = ['normal_circle_0001', 'normal_circle_0002']
+    fine = {'normal_circle_0001': 1.0, 'normal_circle_0002': 2.0}
+    tables = {}
     for k, run in enumerate(RUNS.values()):
-        table = {'case_name': cases[::-1] if k else cases}             # row order differs between the files
+        table = tables[run] = {'case_name': cases[::-1] if k else cases}   # row order differs between the files
         for name in ARRAY_ATTRIBUTES:
-            fine = {'normal_circle_0001': 1.0, 'normal_circle_0002': 2.0}
             table[f'{name}_16x_array'] = [fine[c] for c in table['case_name']]
             table[f'{name}_{run}_array'] = [fine[c] + 0.1 * (k + 1) for c in table['case_name']]
-        pd.DataFrame(table).to_csv(tmp_path / f"flow_attributes_{run}_16x.csv", index=False)
+        write_csv(tmp_path / f"flow_attributes_{run}_16x.csv", table)
 
-    study = array_study(tmp_path).set_index(['attribute', 'case_name'])
-    assert len(study) == 2 * len(ARRAY_ATTRIBUTES)
-    row = study.loc[('dissipation', 'normal_circle_0002')]
-    assert (row['16x'], row['4x'], row['base'], row['0.25x']) == pytest.approx((2.0, 2.1, 2.2, 2.3))
+    study = array_study(tmp_path)
+    assert len(study['case_name']) == 2 * len(ARRAY_ATTRIBUTES)
+    i = next(i for i, (a, c) in enumerate(zip(study['attribute'], study['case_name']))
+             if (a, c) == ('dissipation', 'normal_circle_0002'))
+    assert (study['16x'][i], study['4x'][i], study['base'][i], study['0.25x'][i]) == pytest.approx((2.0, 2.1, 2.2, 2.3))
 
-    table = pd.read_csv(tmp_path / "flow_attributes_4x_16x.csv")
-    table['dissipation_16x_array'] += 1                                # a 16x value that disagrees
-    table.to_csv(tmp_path / "flow_attributes_4x_16x.csv", index=False)
+    table = tables['4x']
+    table['dissipation_16x_array'] = [v + 1 for v in table['dissipation_16x_array']]   # a 16x value that disagrees
+    write_csv(tmp_path / "flow_attributes_4x_16x.csv", table)
     with pytest.raises(ValueError):
         array_study(tmp_path)
+
+
+def test_main_writes_the_table(tmp_path, monkeypatch):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    from tools import uncertainty as tool
+
+    cases = ['normal_circle_0001', 'normal_circle_0002']
+    phi = {'Fx': 1 + 0.1 * H ** 1.5, 'Fy': 0.05 + 0.01 * H ** 1.5}          # second-order-like data, fine to coarse
+    rows = [{'case_name': c, 'attribute': a, **dict(zip(tool.LEVELS, values))} for c in cases for a, values in phi.items()]
+    pq.write_table(pa.Table.from_pylist(rows), tmp_path / 'mesh_study.parquet')
+    cells = [16000, 4000, 1000, 250]                                          # h = 1, 2, 4, 8
+    pq.write_table(pa.Table.from_pylist([{'case_name': c, **dict(zip(tool.CELLS, cells))} for c in cases]),
+                   tmp_path / 'metadata.parquet')
+    monkeypatch.setattr(sys, 'argv', ['uncertainty', str(tmp_path), str(tmp_path / 'out')])
+    tool.main()
+
+    table = pq.read_table(tmp_path / 'out' / 'label_uncertainty.parquet').to_pydict()
+    assert list(table) == ['case_name', 'attribute', 'source', '16x', '4x', 'base', '0.25x', 'U', 'p', 'method',
+                           'phi_0', 'U_%', 'U1_%']
+    assert set(table['source']) == {'openfoam'} and set(table['method']) == {'power'}
+    fx = table['attribute'].index('Fx')
+    assert table['U_%'][fx] == pytest.approx(100 * 1.25 * 0.1 / 1.1, rel=1e-3)    # Fs e, relative to the label
+    fy = table['attribute'].index('Fy')
+    assert table['U_%'][fy] == pytest.approx(100 * 1.25 * 0.01 / 1.1, rel=1e-3)   # lift relative to the drag
+    with open(tmp_path / 'out' / 'label_uncertainty.csv') as file:
+        assert next(csv.reader(file)) == list(table)
 
 
 def test_scales():

@@ -34,9 +34,10 @@ For every case and attribute (phi_1 = 0.25 mm, ..., phi_4 = 2 mm; h_i = sqrt(N_1
             to the dynamic pressure
     U1_%    the simple fallback 3 |phi_1 - phi_2| (factor of safety 3, first order), on the same scale
 
-Needs numpy and pandas with pyarrow.
+Needs numpy and pyarrow (the container).
 """
 
+import csv
 import sys
 from pathlib import Path
 
@@ -164,31 +165,66 @@ def scale_of(name, value, drag):
     return np.abs(value)
 
 
+def floats(values):
+    """a column as float64, None as nan"""
+    return np.array([np.nan if v is None else v for v in values], dtype=float)
+
+
 def array_study(folder):
     """
-    the array attributes of every level in the layout of mesh_study.parquet (case_name, attribute, 16x, 4x, base,
-    0.25x), from the csv files of tools/flow_attributes.py (each has the coarse run and 16x)
+    the array attributes of every level in the layout of mesh_study.parquet (columns case_name, attribute, 16x, 4x,
+    base, 0.25x), from the csv files of tools/flow_attributes.py (each has the coarse run and 16x)
+    :return: {column: list or array}, one row per attribute and case
     """
-    import pandas as pd
+    import pyarrow.csv as pcsv
 
-    tables = {level: pd.read_csv(Path(folder) / f"flow_attributes_{run}_16x.csv").set_index('case_name')
-              for level, run in RUNS.items()}
-    cases = tables['4x'].index
-    frames = []
+    tables = {}
+    for level, run in RUNS.items():
+        table = pcsv.read_csv(Path(folder) / f"flow_attributes_{run}_16x.csv").to_pydict()
+        tables[level] = {name: dict(zip(table['case_name'], values)) for name, values in table.items()}
+    cases = list(tables['4x']['case_name'])
+    study = {'case_name': [], 'attribute': [], **{level: [] for level in LEVELS}}
     for name in ARRAY_ATTRIBUTES:
-        fine = [tables[level][f'{name}_16x_array'].reindex(cases) for level in RUNS]
+        fine = [floats([tables[level][f'{name}_16x_array'].get(c) for c in cases]) for level in RUNS]
         if any(not np.allclose(f, fine[0], equal_nan=True) for f in fine[1:]):
             raise ValueError(f"{name}: the 16x array values differ between the csv files")
-        frame = pd.DataFrame({'case_name': cases, 'attribute': name, '16x': fine[0].to_numpy()})
+        study['case_name'] += cases
+        study['attribute'] += [name] * len(cases)
+        study['16x'] = np.concatenate([study['16x'], fine[0]])
         for level, run in RUNS.items():
-            frame[level] = tables[level][f'{name}_{run}_array'].reindex(cases).to_numpy()
-        frames.append(frame)
-    return pd.concat(frames, ignore_index=True)
+            study[level] = np.concatenate([study[level], floats([tables[level][f'{name}_{run}_array'].get(c)
+                                                                 for c in cases])])
+    return study
+
+
+def write_csv(table, path):
+    """the table as csv, nan and None as empty fields"""
+    with open(path, 'w', newline='') as file:
+        writer = csv.writer(file, lineterminator='\n')
+        writer.writerow(list(table))
+        for row in zip(*table.values()):
+            writer.writerow(['' if v is None or (isinstance(v, float) and np.isnan(v)) else v for v in row])
+
+
+def summary(table):
+    """median and 95th percentile of U_% and U1_% and the cases per method, for every attribute"""
+    attributes = np.array(table['attribute'])
+    methods = sorted(set(table['method']))
+    lines = [f"{'attribute':26s} {'U_median':>9s} {'U_p95':>9s} {'U1_median':>9s} {'U1_p95':>9s} "
+             + ' '.join(f"{m:>10s}" for m in methods)]
+    for name in sorted(set(table['attribute'])):
+        mask = attributes == name
+        u, u1 = np.asarray(table['U_%'])[mask], np.asarray(table['U1_%'])[mask]
+        counts = [int(np.sum(np.asarray(table['method'])[mask] == m)) for m in methods]
+        lines.append(f"{name:26s} {np.nanmedian(u):9.3f} {np.nanquantile(u, 0.95):9.3f} {np.nanmedian(u1):9.3f} "
+                     f"{np.nanquantile(u1, 0.95):9.3f} " + ' '.join(f"{c:10d}" for c in counts))
+    return '\n'.join(lines)
 
 
 def main():
     import argparse
-    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     parser = argparse.ArgumentParser(description="Numerical uncertainty of every attribute and case")
     parser.add_argument('dataset')
@@ -197,41 +233,41 @@ def main():
     args = parser.parse_args()
     folder, output = Path(args.dataset), Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    study = array_study(args.arrays) if args.arrays else pd.read_parquet(folder / 'mesh_study.parquet')
-    cells = pd.read_parquet(folder / 'metadata.parquet', columns=['case_name'] + CELLS).set_index('case_name')
-    study = study.join(cells, on='case_name')
-    if study[CELLS].isna().any().any():
+    if args.arrays:
+        study = array_study(args.arrays)
+    else:
+        study = pq.read_table(folder / 'mesh_study.parquet', columns=['case_name', 'attribute'] + LEVELS).to_pydict()
+    metadata = pq.read_table(folder / 'metadata.parquet', columns=['case_name'] + CELLS).to_pydict()
+    cells = {case: [metadata[c][i] for c in CELLS] for i, case in enumerate(metadata['case_name'])}
+    rows = [cells.get(case) for case in study['case_name']]
+    if any(row is None or None in row for row in rows):
         sys.exit("cases without the cells of every level in metadata.parquet")
-    h = np.sqrt(study[CELLS[0]].to_numpy()[:, None] / study[CELLS].to_numpy())
-    phi = study[LEVELS].to_numpy(dtype=float)
+    cell_counts = np.array(rows, dtype=float)
+    h = np.sqrt(cell_counts[:, :1] / cell_counts)
+    phi = np.column_stack([floats(study[level]) for level in LEVELS])
     result = uncertainty(h, phi)
-    if (study.attribute == 'Fx').any():
-        drag = study[['case_name']].join(study[study.attribute == 'Fx'].set_index('case_name')['16x'].rename('drag'),
-                                         on='case_name')['drag'].to_numpy()
-    else:                                       # array attributes: none is scaled by the drag
-        drag = np.full(len(study), np.nan)
+    attributes = np.array(study['attribute'])
+    drag_of = {case: phi[i, 0] for i, case in enumerate(study['case_name']) if attributes[i] == 'Fx'}
+    drag = np.array([drag_of.get(case, np.nan) for case in study['case_name']])  # array attributes: no drag scale
 
-    table = study[['case_name', 'attribute'] + LEVELS].copy()
-    table.insert(2, 'source', 'array' if args.arrays else 'openfoam')
-    table['U'], table['p'], table['method'], table['phi_0'] = result['U'], result['p'], result['method'], result['phi_0']
-    scale = np.empty(len(table))
-    for name in table['attribute'].unique():
-        mask = (table['attribute'] == name).to_numpy()
+    scale = np.empty(len(attributes))
+    for name in set(study['attribute']):
+        mask = attributes == name
         scale[mask] = scale_of(name, phi[mask, 0], drag[mask])
     with np.errstate(divide='ignore', invalid='ignore'):
-        table['U_%'] = 100 * table['U'] / scale
-        table['U1_%'] = 100 * 3 * np.abs(phi[:, 0] - phi[:, 1]) / scale
+        u_pct, u1_pct = 100 * result['U'] / scale, 100 * 3 * np.abs(phi[:, 0] - phi[:, 1]) / scale
+    table = {'case_name': list(study['case_name']), 'attribute': list(study['attribute']),
+             'source': ['array' if args.arrays else 'openfoam'] * len(attributes),
+             **{level: phi[:, k] for k, level in enumerate(LEVELS)},
+             'U': result['U'], 'p': result['p'], 'method': [str(m) for m in result['method']], 'phi_0': result['phi_0'],
+             'U_%': u_pct, 'U1_%': u1_pct}
     name = 'label_uncertainty_arrays' if args.arrays else 'label_uncertainty'
-    table.to_parquet(output / f'{name}.parquet', index=False)
-    table.to_csv(output / f'{name}.csv', index=False)
+    pq.write_table(pa.table(table), output / f'{name}.parquet')
+    write_csv({k: list(v) for k, v in table.items()}, output / f'{name}.csv')
 
-    summary = table.groupby('attribute').agg(U_median=('U_%', 'median'), U_p95=('U_%', lambda s: s.quantile(0.95)),
-                                             U1_median=('U1_%', 'median'), U1_p95=('U1_%', lambda s: s.quantile(0.95)))
-    methods = table.pivot_table(index='attribute', columns='method', values='case_name', aggfunc='count',
-                                fill_value=0)
     print("uncertainty of the 0.25 mm value, % on the scale of the attribute (median, 95th percentile); U1 = 3 |phi_1 - "
           "phi_2| for comparison; cases per method")
-    print(summary.join(methods).round(3).to_string())
+    print(summary(table))
     print(f"written to {output}")
 
 
