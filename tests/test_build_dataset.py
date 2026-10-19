@@ -89,6 +89,9 @@ def test_build_dataset(tmp_path, monkeypatch):
         assert cases == names and 'normal_circle_0002' not in cases               # same rows in every level
     metadata = pq.read_table(out / 'metadata.parquet')
     assert metadata.num_rows == 2 and 'base_lu.Fx' in metadata.column_names
+    # starting fields not in the provenance: the run's init_from of config/dataset.yaml, else rest; never empty
+    assert set(metadata.column('16x.init_from').to_pylist()) == {'base_lu'}
+    assert set(metadata.column('0.25x.init_from').to_pylist()) == {'rest'}
     assert pq.read_table(out / 'surface.parquet').num_rows == 2 * 5 * 2
     dropped = list(csv.DictReader(open(out / 'dropped_cases.csv')))
     assert [row['case_name'] for row in dropped] == ['normal_circle_0002']
@@ -107,3 +110,42 @@ def test_build_dataset(tmp_path, monkeypatch):
     normalised = MSCOFD(out, split=list(info['splits']), levels=['16x'], normalise=True)
     stacked = np.stack([np.asarray(normalised[i]['16x']) for i in range(len(normalised))])
     assert abs(stacked[:, 0].mean()) < 1e-5            # one split, so its statistics are those of all cases
+
+
+def test_metadata_only(tmp_path, monkeypatch):
+    pq = pytest.importorskip("pyarrow.parquet")
+    pytest.importorskip("h5py")
+    from dataset import build_dataset
+
+    root, release, out = tmp_path / 'root', tmp_path / 'release', tmp_path / 'out'
+    fake_root(root)
+    monkeypatch.setenv('MSCOFD_DATA_ROOT', str(root))
+    monkeypatch.setattr(sys, 'argv', ['build_dataset', str(release)])
+    build_dataset.main()
+
+    # a start recorded in the provenance wins over the configured one
+    provenance = root / 'results' / '0.25x' / 'normal_circle_0001_provenance.json'
+    provenance.write_text(json.dumps({**json.loads(provenance.read_text()), 'init_from': 'base_lu'}))
+    monkeypatch.setattr(sys, 'argv', ['build_dataset', str(out), '--metadata-only', str(release)])
+    build_dataset.main()
+
+    assert sorted(p.name for p in out.iterdir()) == ['checksums.md5', 'dataset_info.json', 'metadata.csv',
+                                                     'metadata.parquet']
+    starts = dict(zip(*pq.read_table(out / 'metadata.parquet', columns=['case_name', '0.25x.init_from'])
+                      .to_pydict().values()))
+    assert starts == {'normal_circle_0001': 'base_lu', 'normal_circle_0003': 'rest'}
+    old = dict(line.split()[::-1] for line in (release / 'checksums.md5').read_text().splitlines())
+    new = dict(line.split()[::-1] for line in (out / 'checksums.md5').read_text().splitlines())
+    assert new.keys() == old.keys()
+    assert all(new[name] == old[name] for name in old if name.endswith('.h5') or name.startswith('surface'))
+    assert new['metadata.parquet'] == build_dataset.md5_of(out / 'metadata.parquet') != old['metadata.parquet']
+    info = json.loads((out / 'dataset_info.json').read_text())
+    assert info['created'] == json.loads((release / 'dataset_info.json').read_text())['created']
+    assert 'metadata_rebuilt' in info
+
+    # a release with other cases or splits is refused
+    (root / 'results' / '16x' / 'normal_circle_0003.npz').unlink()
+    monkeypatch.setattr(sys, 'argv', ['build_dataset', str(tmp_path / 'out2'), '--metadata-only', str(release),
+                                      '--allow-missing'])
+    with pytest.raises(SystemExit):
+        build_dataset.main()

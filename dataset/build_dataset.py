@@ -5,6 +5,11 @@ without a steady solution are out.
 
     python -m dataset.build_dataset <output folder>                      data root: MSCOFD_DATA_ROOT
     python -m dataset.build_dataset <output folder> --allow-missing      leave out cases with missing runs (pilots)
+    python -m dataset.build_dataset <output folder> --metadata-only <release folder>
+
+--metadata-only writes only metadata.parquet, metadata.csv, dataset_info.json and checksums.md5 into the output
+folder, for an existing release whose other files stay as they are: the grids come from its .h5 files, the checksums of
+its other files from its checksums.md5, and the cases and splits must equal those of its metadata.
 
 Output in <output folder>:
 
@@ -128,8 +133,20 @@ def write_fields(output, root, run, split_cases):
     return {'grid': list(shape[1:]), 'mean': mean.tolist(), 'std': std.tolist()}
 
 
-def metadata_row(root, runs, row, split, index):
-    """one row of metadata.parquet: the manifest row, the split and per run provenance and attributes"""
+def started_from(provenance, run, run_settings):
+    """
+    the starting fields of a run: as recorded in its provenance, else the init_from of the run in config/dataset.yaml,
+    else 'rest'. The provenance records init_from only from ec727c7 on; the start of the earlier runs was checked by the
+    dataset audit (mapFields in their timings, or log.mapFields in their archives)
+    """
+    return provenance.get('init_from') or (run_settings or {}).get(run, {}).get('init_from') or 'rest'
+
+
+def metadata_row(root, runs, row, split, index, run_settings=None):
+    """
+    one row of metadata.parquet: the manifest row, the split and per run provenance and attributes
+    :param run_settings: the runs block of config/dataset.yaml, for the starting fields not recorded in the provenance
+    """
     out = {'dataset_index': index, 'split': split}
     out.update({key: number_or_text(value) if key not in ('case_name', 'size', 'geometry') else value
                 for key, value in row.items()})
@@ -138,6 +155,8 @@ def metadata_row(root, runs, row, split, index):
         provenance = json.loads(files['provenance'].read_text())
         for key in PROVENANCE:
             value = provenance.get(key)
+            if key == 'init_from':
+                value = started_from(provenance, run, run_settings)
             text = key in ('mesh_variant', 'templates', 'init_from', 'code_revision', 'host', 'slurm_job_id',
                            'cpu_model', 'container_digest')
             out[f"{run}.{key}"] = value if text else number_or_text(value)
@@ -213,10 +232,44 @@ def mesh_study_rows(root, cases):
             yield row
 
 
+def write_metadata_only(output, release, rows, info):
+    """
+    metadata.parquet / .csv, dataset_info.json and checksums.md5 for an existing release: the checksums of its other
+    files are taken from its checksums.md5, the files written here get their new MD5
+    """
+    import pyarrow.parquet as pq
+
+    release = Path(release)
+    old = pq.read_table(release / 'metadata.parquet', columns=['case_name', 'split']).to_pydict()
+    if old['case_name'] != [row['case_name'] for row in rows] or old['split'] != [row['split'] for row in rows]:
+        sys.exit(f"the cases or splits differ from those of {release}: rebuild the whole dataset instead")
+    write_metadata(rows, output / 'metadata.parquet', output / 'metadata.csv')
+    (output / 'dataset_info.json').write_text(json.dumps(info, indent=1) + '\n')
+    written = ('metadata.parquet', 'metadata.csv', 'dataset_info.json')
+    sums = {}
+    for line in (release / 'checksums.md5').read_text().splitlines():
+        digest, name = line.split(maxsplit=1)
+        sums[name] = digest
+    sums.update({name: md5_of(output / name) for name in written})
+    with open(output / 'checksums.md5', 'w') as file:
+        for name in sorted(sums):
+            file.write(f"{sums[name]}  {name}\n")
+
+
+def write_metadata(rows, parquet, csv_path):
+    columns = write_table(rows, parquet)
+    with open(csv_path, 'w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=columns, lineterminator='\n')
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build the dataset files from the per-case results")
     parser.add_argument("output", help="output folder")
     parser.add_argument("--allow-missing", action="store_true", help="leave out cases with missing runs")
+    parser.add_argument("--metadata-only", metavar="RELEASE",
+                        help="write only the metadata, dataset_info.json and checksums.md5 for this release folder")
     args = parser.parse_args()
 
     root = ledger.data_root()
@@ -241,17 +294,29 @@ def main():
 
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
+    rows = [metadata_row(root, runs, manifest[case], split_of[case], i, dataset['runs'])
+            for i, case in enumerate(members)]
+    revisions = sorted({row.get(f"{run}.code_revision") for row in rows for run in runs} - {None})
+    digests = sorted({row.get(f"{run}.container_digest") for row in rows for run in runs} - {None, ''})
+    revision_file = Path(__file__).resolve().parent.parent / 'REVISION'
+    builder_revision = revision_file.read_text().strip() if revision_file.exists() else ''
+
+    if args.metadata_only:
+        release = Path(args.metadata_only)
+        info = json.loads((release / 'dataset_info.json').read_text())
+        info.update({'code_revisions': revisions, 'container_digests': digests,
+                     'metadata_rebuilt': datetime.now().astimezone().isoformat(timespec='seconds'),
+                     'metadata_builder_revision': builder_revision})
+        write_metadata_only(output, release, rows, info)
+        print(f"metadata of {release} written to {output}")
+        return
+
     grids = {}
     for run in runs:
         grids[run] = write_fields(output, root, run, split_cases)
         print(f"{run}: {len(members)} samples, grid {grids[run]['grid']}")
 
-    rows = [metadata_row(root, runs, manifest[case], split_of[case], i) for i, case in enumerate(members)]
-    columns = write_table(rows, output / 'metadata.parquet')
-    with open(output / 'metadata.csv', 'w', newline='') as file:
-        writer = csv.DictWriter(file, fieldnames=columns, lineterminator='\n')
-        writer.writeheader()
-        writer.writerows(rows)
+    write_metadata(rows, output / 'metadata.parquet', output / 'metadata.csv')
     write_surface(root, runs, members, output / 'surface.parquet')
     write_table(list(mesh_study_rows(root, members)) or [{'case_name': None}], output / 'mesh_study.parquet')
 
@@ -266,15 +331,11 @@ def main():
             writer.writerow({**manifest[case], **{k: record.get(k) for k in fields[-5:-1]},
                              'reason': 'no steady solution: the 1 mm second-order run stopped at its iteration cap'})
 
-    revisions = sorted({row.get(f"{run}.code_revision") for row in rows for run in runs} - {None})
-    digests = sorted({row.get(f"{run}.container_digest") for row in rows for run in runs} - {None, ''})
     info = {'name': dataset['name'], 'version': dataset['version'], 'created': datetime.now().astimezone().isoformat(timespec='seconds'),
             'cases': len(members), 'splits': {split: len(c) for split, c in split_cases.items() if c},
             'dropped_cases': len(dropped), 'reserve_cases': len(reserves), 'channels': CHANNELS,
             'runs': {run: {'label': LABELS.get(run, run), **grids[run]} for run in runs},
-            'code_revisions': revisions, 'container_digests': digests,
-            'builder_revision': (Path(__file__).resolve().parent.parent / 'REVISION').read_text().strip()
-            if (Path(__file__).resolve().parent.parent / 'REVISION').exists() else ''}
+            'code_revisions': revisions, 'container_digests': digests, 'builder_revision': builder_revision}
     (output / 'dataset_info.json').write_text(json.dumps(info, indent=1) + '\n')
 
     with open(output / 'checksums.md5', 'w') as file:
