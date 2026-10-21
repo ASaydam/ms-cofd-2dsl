@@ -11,8 +11,9 @@ run:      for every case folder <cases>/<resolution>/<case>, openfoam/scripts/op
 collect:  reads the results of every work folder and writes <cases>/../openfoam_attributes.csv, one row per case
           and resolution, and surface.csv (x, y in mm, p, wall shear stress) in every work folder.
 
-Attributes (same names as the array based ones of tools/flow_attributes.py; mm, m/s, rho = 1, per unit depth
-where integrated; the first 5 mm of the channel are left out where noted, the inlet corners are singular):
+Attributes (same names as the array based ones of tools/flow_attributes.py; mm, m/s, rho = 1; the forces are for
+the 10 mm depth of the mesh, the other integrated quantities per unit depth (cell areas = volumes / DEPTH); the first
+5 mm of the channel are left out where noted, the inlet corners are singular):
 
     Fx, Fy, Fx_pressure, Fy_pressure, Fx_viscous, Fy_viscous   forces on the obstacle (forces), 10 mm depth
     max_wall_shear, front_pressure, base_pressure              obstacle faces (wallShearStress, surfaces);
