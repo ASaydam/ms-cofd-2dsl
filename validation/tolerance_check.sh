@@ -42,7 +42,7 @@ fi
 echo "$case: job ${SLURM_JOB_ID:-} on $(hostname -s), revision $(cat "$MSCOFD_REPO/REVISION"), ${left:-?} s left, $(date -Iseconds)"
 apptainer exec --bind "$MSCOFD_BIND" --home "$MSCOFD_HOME/container/home" "$MSCOFD_IMAGE" \
     bash -c 'source /opt/mscofd/activate.sh && cd "$MSCOFD_REPO" && python validation/tolerance_check.py run "$@"' \
-    _ "$case" --extra "$extra" "${stop[@]}"
+    _ "$case" --extra "$extra" ${stop[@]+"${stop[@]}"}  # bash 4.2: an empty array is unbound under set -u
 status=$?
 echo "$case: exit $status $(date -Iseconds)"
 if [ $status -eq 3 ]; then
