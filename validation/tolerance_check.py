@@ -10,8 +10,10 @@ read.
 run, for one case of the 16x run (again after a job stopped at its time limit: continues where it stopped):
 1. the 16x archive of the case from Drive (the live row of archives/archive_index.csv of the production, MD5 checked)
    into restored/16x/, its case folder into work/16x/; the logs of the released run are kept as *.1e-6
-2. only two changes: residualControl 1e-8 for p and U (system/fvSolution), endTime = released iterations + extra
-   (system/controlDict); simpleFoam continues from the latest time step (startFrom latestTime)
+2. only two changes: residualControl 1e-8 for p and U (system/fvSolution), endTime = released iterations + extra,
+   rounded up to the write interval of 100 so that a run stopped at the cap writes its last step (system/controlDict);
+   simpleFoam continues from the latest time step (startFrom latestTime). The fields are read from the 6 digits of the
+   written time step, so the first iterations after the restart have higher residuals again
 3. stopped after --stop-after seconds (before the job time limit, exit code 3): the next job continues from the last
    written step
 4. at the end the arrays and attributes as in the production (hpc/run_task.py Task.arrays and Task.attributes) to
@@ -45,6 +47,7 @@ from utils import REPO_ROOT, read_csv  # noqa: E402
 
 RUN = '16x'
 TOLERANCE = '1e-8'
+WRITE_INTERVAL = 100      # writeInterval of the 16x template: a run that stops at endTime writes only on it
 RELEASED = '1e-6'           # suffix of the files of the released run kept in the case folder
 KEPT = ['log.simpleFoam', 'log.time', 'log.attributes', 'provenance.json']
 CHANNELS = {'u_x': 0, 'u_y': 1, 'p': 2}
@@ -129,7 +132,7 @@ def run(case, extra, stop_after):
         sys.exit("the data root is the production root")
     folder = restore(root, production, case)
     start_iteration = released_iterations(folder)
-    end_time = start_iteration + extra
+    end_time = -(-(start_iteration + extra) // WRITE_INTERVAL) * WRITE_INTERVAL
     jobs = root / 'results' / RUN / f"{case}_jobs.txt"
     jobs.parent.mkdir(parents=True, exist_ok=True)
     with open(jobs, 'a') as file:
