@@ -33,6 +33,35 @@ def test_level_errors(tmp_path):
     assert results['recirculation_length_mm'][0]['0.25x'][0] == pytest.approx(0.1)   # 0.01 mm of the 10 mm height
 
 
+def test_exceedance(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    from validation.level_errors import ATTRIBUTES, RUNS, exceedance
+
+    # four cases with the label 1.0; every level off by 0.01, 0.02, 0.03, 0.04 (runs in order); U per case 0.015, 0.025,
+    # 0 and missing: the first exceeds from the second run on, the second from the third, the third (U = 0) everywhere,
+    # the fourth is left out
+    rows, uncertainty = [], []
+    for i, u in enumerate((0.015, 0.025, 0.0, None)):
+        case = f'normal_circle_{i:04d}'
+        row = {'case_name': case}
+        for name, _ in ATTRIBUTES:
+            row[f'16x.{name}'] = 1.0
+            for k, (run, _) in enumerate(RUNS):
+                row[f'{run}.{name}'] = 1.0 + 0.01 * (k + 1)
+            uncertainty.append({'case_name': case, 'attribute': name, 'source': 'openfoam', 'U': u})
+        rows.append(row)
+    pq.write_table(pa.Table.from_pylist(rows), tmp_path / 'metadata.parquet')
+    pq.write_table(pa.Table.from_pylist(uncertainty), tmp_path / 'u.parquet')
+
+    results = {name: (shares, left_out) for name, shares, left_out in exceedance(tmp_path, tmp_path / 'u.parquet')}
+    shares, left_out = results['Fx']
+    assert left_out == 1
+    assert shares['0.25x'] == (pytest.approx(100 / 3), 3)                  # only the U = 0 case
+    assert shares['base_fo'][0] == pytest.approx(200 / 3)                 # 0.02 > 0.015
+    assert shares['4x'][0] == pytest.approx(100.0)
+
+
 def test_array_vs_openfoam(tmp_path):
     from validation.array_vs_openfoam import ATTRIBUTES, array_vs_openfoam
 
