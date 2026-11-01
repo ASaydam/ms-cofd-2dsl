@@ -1,7 +1,7 @@
 """
 Builds the dataset files from the per-case results of a data root (hpc/run_task.py). The cases are those of the
 production: the active cases without the dropped ones (hpc/topup.py dataset_cases), so reserve cases are in and cases
-without a steady solution are out.
+whose 1 mm second-order run did not converge are out.
 
     python -m dataset.build_dataset <output folder>                      data root: MSCOFD_DATA_ROOT
     python -m dataset.build_dataset <output folder> --allow-missing      leave out cases with missing runs (pilots)
@@ -21,7 +21,8 @@ Output in <output folder>:
                           time, peak memory, host, CPU, image digest, code revision, and the OpenFOAM attributes
     surface.parquet       pressure and wall shear along the obstacle, every case and run (one row per obstacle face)
     mesh_study.parquet    order, extrapolated value, errors of every level and GCI of every attribute and case
-    dropped_cases.csv     the cases dropped without a steady solution, with their parameters and residuals
+    dropped_cases.csv     the cases dropped because their 1 mm second-order run did not converge, with their parameters
+                          and residuals
     dataset_info.json     name, version, counts per split, runs and grids, code revision, image digest
     checksums.md5         MD5 of every file
 
@@ -329,7 +330,7 @@ def main():
             provenance = case_files(root, 'base_lu', case)['provenance']
             record = json.loads(provenance.read_text()) if provenance.exists() else {}
             writer.writerow({**manifest[case], **{k: record.get(k) for k in fields[-5:-1]},
-                             'reason': 'no steady solution: the 1 mm second-order run stopped at its iteration cap'})
+                             'reason': 'did not converge: the 1 mm second-order run stopped at its iteration cap'})
 
     info = {'name': dataset['name'], 'version': dataset['version'], 'created': datetime.now().astimezone().isoformat(timespec='seconds'),
             'cases': len(members), 'splits': {split: len(c) for split, c in split_cases.items() if c},

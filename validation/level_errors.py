@@ -20,7 +20,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.uncertainty import INLET_VELOCITY  # noqa: E402
+from tools.uncertainty import scale_of  # noqa: E402
 
 RUNS = [('0.25x', '2 mm'), ('base_fo', '1 mm FO'), ('base_lu', '1 mm'), ('4x', '0.5 mm')]
 ATTRIBUTES = [('Fx', 'drag'), ('Fx_pressure', 'pressure drag'), ('Fx_viscous', 'friction drag'), ('Fy', 'lift'),
@@ -35,20 +35,8 @@ def floats(values):
 
 
 def scale(name, metadata):
-    """the scale of an attribute's errors, per case"""
-    label = np.abs(floats(metadata[f'16x.{name}']))
-    height = floats(metadata['bbox_height'])
-    if name.startswith('Fy') or name in ('Fx_pressure', 'Fx_viscous'):
-        return np.abs(floats(metadata['16x.Fx']))
-    if name == 'wake_min_u_x':
-        return np.full(len(label), INLET_VELOCITY)
-    if name == 'base_pressure':
-        return np.full(len(label), 0.5 * INLET_VELOCITY ** 2)
-    if name == 'recirculation_length_mm':
-        return np.maximum(label, height)
-    if name == 'recirculation_area_mm2':
-        return np.maximum(label, height ** 2)
-    return label
+    """the scale of an attribute's errors, per case (tools/uncertainty.py scale_of, with the obstacle height)"""
+    return scale_of(name, floats(metadata[f'16x.{name}']), floats(metadata['16x.Fx']), floats(metadata['bbox_height']))
 
 
 def level_errors(dataset, uncertainty_path):

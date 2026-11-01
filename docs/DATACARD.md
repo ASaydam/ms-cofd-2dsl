@@ -21,7 +21,9 @@ metadata.parquet  metadata.csv      one row per case (259 columns)
 mesh_study.parquet                  values of every level, order, extrapolation, grid convergence index per case
                                     and attribute
 surface.parquet                     pressure and wall shear on every obstacle face, every case and run
-dropped_cases.csv                   the 18 cases without a steady solution, replaced from reserve geometries
+label_uncertainty.parquet           uncertainty of the 19 attributes of every case (see Reading the data)
+dropped_cases.csv                   the 18 cases whose 1 mm second-order run did not converge, replaced from
+                                    reserve geometries
 dataset_info.json                   counts, runs, grids, normalisation statistics, revisions
 DATACARD.md                         this file
 checksums.md5                       MD5 of every other file
@@ -61,26 +63,35 @@ test sets: cases from the upper tails of blockage, rotation and position, held o
 - **Channels:**
   - 0 `u_x` and 1 `u_y` (m/s);
   - 2 `p`, kinematic pressure in m²/s², 0 at the outlet;
-  - 3 `wall_distance`, in grid points;
+  - 3 `wall_distance`, distance to the closer channel wall in grid points, min(j, ny − 1 − j), 0 on both walls;
   - 4 `cell_type`: 1 wall or obstacle, 2 inlet, 3 outlet, 4 fluid;
-  - 5 `obstacle_sdf`: signed distance to the obstacle outline in grid points, negative inside.
+  - 5 `obstacle_sdf`: signed distance to the obstacle outline in grid points, 0 on the obstacle's border points
+    (stored as −0.0) and negative inside.
 
   The flow channels are 0 inside the obstacle.
 - **Grid:** point (i, j) lies at x = i · 360 / (nx − 1) mm and y = j · 120 / (ny − 1) mm, with the inlet at i = 0.
   The grids of different levels share only their end points.
-- **Masks:** `cell_type == 1` covers the obstacle and both channel walls. `obstacle_sdf < 0` covers the obstacle
-  alone.
-- **Attributes:** `<run>.<attribute>` in the metadata are computed by OpenFOAM on the simulation mesh.
+- **Masks:** `cell_type == 1` covers the obstacle and both channel walls. `obstacle_sdf <= 0` covers the obstacle
+  alone (`< 0` would leave out its border points).
+- **Attributes:** `<run>.<attribute>` in the metadata are computed on the simulation mesh, by a Python script from the
+  OpenFOAM solution and its function-object output.
   - Pressures and stresses are kinematic.
+  - `dissipation` is the pseudo-dissipation ν∫|∇u|² dA. It differs from the viscous dissipation 2ν∫S:S dA by
+    boundary terms.
+  - `wake_min_u_x` is the smallest u_x on a line across the channel 20 mm behind the obstacle, within the obstacle's
+    y extent.
   - Forces are for the 10 mm depth of the mesh (× 100 for per metre); dissipation is per metre of depth.
   - Quantities recomputed from the arrays differ by the loss of the resampling, which is largest for gradients:
     dissipation is 1.7 % low at 0.25 mm and 13 % low at 2 mm (median).
-- **Uncertainty of the labels:** per case and attribute, in `references/label_uncertainty.parquet` of the benchmark
-  repository.
+- **Uncertainty of the labels:** per case and attribute, in `label_uncertainty.parquet` (the same file as
+  `references/label_uncertainty.parquet` of the benchmark repository).
   - `source = openfoam` is the uncertainty of the 0.25 mm solution (Eça & Hoekstra, four second-order levels).
   - `source = array` describes how the array values converge.
+  - `method` gives the basis of each estimate: `power`, `low_order` or `high_order` for a fitted estimate,
+    `anomalous` for the fallback of three times the largest difference between the levels (no convergence the fits
+    can describe), and `equal` where all four values are equal (U = 0 by convention).
 
-## Caveats and flags
+## Caveats
 
 - **Not mesh-independent:** peak wall shear and peak vorticity (singular at sharp corners), and front pressure
   (the stagnation point often sits on a corner; no convergence in 2,947 of 4,500 cases). They are included but should
@@ -131,12 +142,14 @@ test sets: cases from the upper tails of blockage, rotation and position, held o
 ## Validation (summary; details in the paper and the pipeline's docs/validation.md)
 
 - **Audit:** an audit of every run before the release found no error.
-- **Reproduction:** five restored archives and three cases solved again reproduce the released arrays and attributes
-  bit for bit.
+- **Reproduction:** five restored archives, processed again, reproduce the released arrays and attributes bit for
+  bit. Three cases solved again from rest at 2 mm and 1 mm needed the same iterations and gave identical fields and
+  attributes.
 - **DFG 2D-1 benchmark** (the steady laminar flow past a cylinder in a channel of Schäfer, Turek et al., 1996), with
   the production settings: drag, recirculation length and pressure difference within
   the reference intervals (the pressure difference by extrapolation); lift 9 % high on uniform meshes (0.2 % of the
   drag).
 - **Starting fields:** they change the iterations, not the solution. At 0.25 mm, solutions from rest and from the
   1 mm solution agree within 0.10 % (fields) and 0.15 % (attributes).
-- **Outlet:** no reverse flow at the outlet in any 0.25 mm run.
+- **Outlet:** no reverse flow reaches the outlet in any 0.25 mm run. The sensitivity of the solutions to the outlet
+  position was not tested.

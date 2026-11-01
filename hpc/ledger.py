@@ -191,7 +191,7 @@ def ready_tasks(cases, runs, states, dependencies=None, gate=None, discarded=(),
                    again by the caller)
     :param dependencies: {run: run it starts from}, default DEPENDENCIES (see dependencies_of)
     :param gate: run that has to converge before any other run of the case starts (selection.gate)
-    :param discarded: cases without a steady solution (unsteady_cases), none of their runs is made
+    :param discarded: cases whose gate run did not converge (unsteady_cases), none of their runs is made
     :param priority: submission order of the runs, default RUN_PRIORITY
     """
     dependencies = DEPENDENCIES if dependencies is None else dependencies
@@ -219,7 +219,7 @@ def converged(state):
 def unsteady_cases(states, runs=('base_lu',)):
     """
     cases with a run of runs (selection.discard_if_not_converged) done without converging: it stopped at its
-    iteration cap, there is no steady solution; the case is discarded with all its runs and replaced by a reserve
+    iteration cap; the case is discarded with all its runs and replaced by a reserve
     case (active_cases)
     """
     return sorted({case for (run, case), state in states.items()

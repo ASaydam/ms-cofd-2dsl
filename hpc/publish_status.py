@@ -7,7 +7,7 @@ the production:
 
     status.json    the latest status
     history.csv    one line per publication: time, finished tasks per run, running and pending jobs, quota, cases
-                   without a steady solution
+                   whose 1 mm second-order run did not converge
 
 The repository is cloned to <data root>/status-repo (branch status.branch) and pushed over SSH with a deploy key
 that can write only to this repository: <MSCOFD_HOME>/config/github_status_key, with the host keys of github.com in

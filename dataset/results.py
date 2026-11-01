@@ -2,7 +2,7 @@
 Reads the per-case results of the production (written by hpc/run_task.py) from the data root:
 
     results/<run>/<case>.npz               sample (6, nx, ny) float32 and the exported time
-    results/<run>/<case>_attributes.json   attributes computed with OpenFOAM (tools/openfoam_attributes.py)
+    results/<run>/<case>_attributes.json   attributes computed on the simulation mesh (tools/openfoam_attributes.py)
     results/<run>/<case>_provenance.json   status, iterations, timings, versions, ...
 
 The analysis tools (tools/upsample_mse.py, tools/flow_attributes.py) use these readers, so they work during the

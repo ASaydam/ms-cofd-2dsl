@@ -62,6 +62,7 @@ from extraction.build_arrays import FLUID, INLET, OBSTACLE, OUTLET, WALL, wall_d
 from hpc import ledger, topup  # noqa: E402
 from tools import mesh_study  # noqa: E402
 from tools.flow_attributes import spacing  # noqa: E402
+from tools.uncertainty import scale_of  # noqa: E402
 
 CHECKS = ['members', 'states', 'provenance', 'archives', 'arrays', 'attributes', 'levels', 'mesh_study', 'splits',
           'geometry', 'leftovers']
@@ -467,18 +468,7 @@ def level_difference(name, value, reference, reference_fx, inlet, height):
     recirculation changes much in relative terms); None when there is no scale
     :param height: height of the obstacle's bounding box (mm)
     """
-    if name.startswith('Fy') or name in ('Fx_pressure', 'Fx_viscous'):
-        scale = abs(reference_fx)
-    elif name == 'wake_min_u_x':
-        scale = inlet
-    elif name in ('front_pressure', 'base_pressure'):
-        scale = 0.5 * inlet ** 2
-    elif name == 'recirculation_length_mm':
-        scale = max(abs(reference), height)
-    elif name == 'recirculation_area_mm2':
-        scale = max(abs(reference), height ** 2)
-    else:
-        scale = abs(reference)
+    scale = float(scale_of(name, reference, reference_fx, height, inlet))
     return (value - reference) / scale if scale > 0 else None
 
 

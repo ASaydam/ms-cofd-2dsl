@@ -42,11 +42,11 @@ def cell_type_mask(obstacle):
 
 def wall_distance(nx, ny):
     """
-    creates the wall_distance channel: min(j, ny - j) for the grid row j
-    (so the lower wall row has distance 0, the upper wall row distance 1)
+    creates the wall_distance channel: min(j, ny - 1 - j) for the grid row j
+    (both wall rows have distance 0)
     """
     rows = np.arange(ny)
-    distance = np.minimum(ny - rows, rows).astype(float)
+    distance = np.minimum(ny - 1 - rows, rows).astype(float)
     return np.tile(distance, (nx, 1))
 
 

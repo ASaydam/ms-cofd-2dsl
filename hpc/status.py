@@ -381,7 +381,7 @@ def main():
 
     unsteady = status['unsteady']
     if unsteady:
-        print(f"\n{len(unsteady)} cases without a steady solution (base_lu at its iteration cap; dropped with all runs, "
+        print(f"\n{len(unsteady)} cases that did not converge (base_lu at its iteration cap; dropped with all runs, "
               f"{status['reserves']} reserve cases in use): "
               f"{', '.join(unsteady[:10])}{' ...' if len(unsteady) > 10 else ''}")
     if status['failures'] and args.failures:

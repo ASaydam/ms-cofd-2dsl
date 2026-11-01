@@ -294,7 +294,7 @@ def top_up(root, slurm, dataset, args):
         submitted += 1
     print(f"{datetime.now():%Y-%m-%d %H:%M} qos {window['qos']}: {queued} queued, {submitted} submitted "
           f"({len(retry)} again), {len(candidates) - submitted} ready and waiting; {used:.0f} GiB used, "
-          f"{backlog:.1f} GiB not uploaded; {len(discarded)} cases without a steady solution, "
+          f"{backlog:.1f} GiB not uploaded; {len(discarded)} cases that did not converge, "
           f"{len(reserves)} reserve cases in use, {len(held)} tasks on hold")
 
 

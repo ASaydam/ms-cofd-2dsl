@@ -20,9 +20,9 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
 | Flow | incompressible, laminar, steady; ν = 1·10⁻⁴ m²/s; uniform inlet velocity 0.1 m/s |
 | Boundary conditions | inlet: fixed velocity, zero-gradient pressure; outlet: zero-gradient velocity, p = 0; walls and obstacle: no-slip |
 | Runs per case | `0.25x` 2 mm · `base_fo` 1 mm, first-order upwind · `base_lu` 1 mm · `4x` 0.5 mm · `16x` 0.25 mm (all others second-order upwind) |
-| Convergence | every run until the initial residuals of U and p are below 1·10⁻⁶ (SIMPLEC); no run of a case starts before its 1 mm second-order run converged; a case where that run stops at its cap (no steady solution) is dropped with all its runs and replaced by the next reserve geometry of its size and family (index 301 on, same seed), so every class keeps 300 cases |
+| Convergence | every run until the initial residuals of U and p are below 1·10⁻⁶ (SIMPLEC); no run of a case starts before its 1 mm second-order run converged; a case where that run stops at its cap (it did not converge) is dropped with all its runs and replaced by the next reserve geometry of its size and family (index 301 on, same seed), so every class keeps 300 cases |
 | Arrays | 6 channels per run on a regular grid: 180 × 60 (2 mm), 360 × 120 (1 mm), 720 × 240 (0.5 mm), 1440 × 480 (0.25 mm), float32 |
-| Attributes | computed with OpenFOAM on the simulation mesh: drag and lift (pressure and friction parts), stagnation and base pressure, mean and peak wall shear, mean and peak vorticity, pressure drop, recirculation length and area (the reverse flow connected to the obstacle), flow split, wake deficit, dissipation, reverse flow at the outlet |
+| Attributes | computed on the simulation mesh, by a Python script from the OpenFOAM solution: drag and lift (pressure and friction parts), stagnation and base pressure, mean and peak wall shear, mean and peak vorticity, pressure drop, recirculation length and area (the reverse flow connected to the obstacle), flow split, wake deficit, dissipation, reverse flow at the outlet |
 | Surface distributions | pressure and wall shear along the obstacle surface, every run |
 | Mesh study | order of convergence, extrapolated value and grid convergence index of every attribute (1, 0.5, 0.25 mm), and the error of every level against the extrapolated value |
 | Metadata | sampled parameters, geometry, convergence, iterations, timings, peak memory, hardware, software versions of every run |
@@ -33,9 +33,9 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
   mean vorticity, recirculation length and area, wake deficit, dissipation, pressure drop between cross-sections,
   flow split. Each comes with its mesh-study uncertainty (grid convergence index of the 0.25 mm value).
 - **Surface distributions**: pressure and wall shear coefficients along the obstacle.
-- **Peak values** (peak wall shear, peak vorticity) are included but flagged: at sharp corners the exact solution is
+- **Peak values** (peak wall shear, peak vorticity) are included but not mesh-independent: at sharp corners the exact solution is
   singular, so they keep growing with refinement and are not mesh-independent targets.
-- **Stagnation (front) pressure** is included but flagged as well: the stagnation point often sits on a corner, and
+- **Stagnation (front) pressure** is included but not mesh-independent either: the stagnation point often sits on a corner, and
   the value did not converge with the mesh in about two thirds of the cases.
 
 ### Array channels
@@ -45,7 +45,7 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
 | 0 | `u_x` | x velocity (m/s) |
 | 1 | `u_y` | y velocity (m/s) |
 | 2 | `p` | kinematic pressure (m²/s²) |
-| 3 | `wall_distance` | Wall Distance: distance to the closer channel wall, in grid points |
+| 3 | `wall_distance` | Wall Distance: distance to the closer channel wall, in grid points, min(j, ny − 1 − j) |
 | 4 | `cell_type` | Cell Type Mask: 1 wall or obstacle, 2 inlet, 3 outlet, 4 fluid |
 | 5 | `obstacle_sdf` | Signed Obstacle Distance: distance to the obstacle border in grid points, negative inside |
 

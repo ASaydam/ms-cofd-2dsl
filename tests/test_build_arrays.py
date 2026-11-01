@@ -42,7 +42,8 @@ def test_cell_type_mask():
 def test_wall_distance():
     distance = wall_distance(NX, NY)
     assert distance.shape == (NX, NY)
-    assert distance[0, 0] == 0 and distance[0, NY - 1] == 1 and distance[0, NY // 2] == NY // 2
+    assert distance[0, 0] == 0 and distance[0, NY - 1] == 0 and distance[0, NY // 2] == (NY - 1) // 2
+    assert np.array_equal(distance[0], distance[0, ::-1])        # symmetric about the channel centre
 
 
 def test_signed_obstacle_distance():

@@ -63,19 +63,29 @@ def test_exceedance(tmp_path):
 
 
 def test_array_vs_openfoam(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
     from validation.array_vs_openfoam import ATTRIBUTES, array_vs_openfoam
 
+    # three cases, obstacle height 10 mm; every OpenFOAM value 1.0 (the wake velocity 0.0, the wall zero of a case
+    # without reverse flow), the arrays off by k + 1 % of 1.0 at level k (two cases low, one high), 0.5 % at 16x
+    cases = [f'normal_circle_{i:04d}' for i in range(3)]
+    pq.write_table(pa.Table.from_pylist([{'case_name': c, 'bbox_height': 10.0} for c in cases]),
+                   tmp_path / 'metadata.parquet')
     for k, run in enumerate(('0.25x', 'base_fo', 'base_lu', '4x')):
         with open(tmp_path / f"flow_attributes_{run}_16x.csv", 'w', newline='') as file:
             writer = csv.writer(file)
-            names = [f'{a}_{r}_array_vs_openfoam_%' for a in ATTRIBUTES for r in (run, '16x')]
-            writer.writerow(['case_name'] + names)
-            for i, value in enumerate((-(k + 1), -(k + 1), k + 1)):          # two cases low, one high
-                writer.writerow([f'normal_circle_{i:04d}'] + [value if n.endswith(f'_{run}_array_vs_openfoam_%')
-                                                             else 0.5 for n in names])
-    results = array_vs_openfoam(tmp_path)
-    assert results['dissipation']['0.25x'][0] == pytest.approx(1.0)        # median |d|
+            writer.writerow(['case_name'] + [f'{a}_{r}{s}' for a in ATTRIBUTES for r in (run, '16x') for s in ('', '_array')])
+            for case, sign in zip(cases, (-1, -1, 1)):
+                values = []
+                for a in ATTRIBUTES:
+                    mesh = 0.0 if a == 'wake_min_u_x' else 1.0
+                    values += [mesh, mesh + sign * 0.01 * (k + 1), mesh, mesh + 0.005]
+                writer.writerow([case] + values)
+    results = array_vs_openfoam(tmp_path, tmp_path / 'metadata.parquet')
+    assert results['dissipation']['0.25x'][0] == pytest.approx(1.0)        # median |d|, relative to the value
     assert results['dissipation']['0.25x'][2] == pytest.approx(-1.0)       # median signed d
     assert results['dissipation']['4x'][0] == pytest.approx(4.0)
     assert results['dissipation']['16x'] == pytest.approx((0.5, 0.5, 0.5))
-    assert np.isfinite(results['wake_min_u_x']['base_lu'][1])
+    assert results['recirculation_length_mm']['0.25x'][0] == pytest.approx(0.1)     # 0.01 mm of the 10 mm height
+    assert results['wake_min_u_x']['base_lu'][0] == pytest.approx(30.0)    # 0.03 m/s of U_in = 0.1 m/s, mesh value 0

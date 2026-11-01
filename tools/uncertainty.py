@@ -154,15 +154,29 @@ def uncertainty(h, phi):
     return {'U': u, 'p': p, 'method': method, 'phi_0': phi0}
 
 
-def scale_of(name, value, drag):
-    """the scale of an attribute (validation/audit_dataset.py level_difference)"""
+def scale_of(name, value, drag, height=None, inlet=INLET_VELOCITY):
+    """
+    the scale of an attribute, the one implementation for the uncertainty (U_%), the level errors
+    (validation/level_errors.py, validation/audit_dataset.py level_difference) and the array values
+    (validation/array_vs_openfoam.py): lift and the parts of the drag relative to the drag, the wake velocity relative
+    to the inlet velocity, the front and base pressure relative to the dynamic pressure, every other attribute relative
+    to its value. Given the obstacle height (mm), the recirculation length is taken relative to at least the height and
+    its area to at least its square, as for the level errors (a short recirculation changes much in relative terms);
+    the uncertainty is given without it.
+    :param value: the attribute, a number or an array; :param drag: the drag Fx of the same case and level
+    """
+    value = np.abs(np.asarray(value, dtype=float))
     if name.startswith('Fy') or name in ('Fx_pressure', 'Fx_viscous'):
-        return np.abs(drag)
+        return np.abs(np.asarray(drag, dtype=float))
     if name == 'wake_min_u_x':
-        return np.full(len(value), INLET_VELOCITY)
+        return np.full(value.shape, inlet)
     if name in ('front_pressure', 'base_pressure'):
-        return np.full(len(value), 0.5 * INLET_VELOCITY ** 2)
-    return np.abs(value)
+        return np.full(value.shape, 0.5 * inlet ** 2)
+    if height is not None and name == 'recirculation_length_mm':
+        return np.maximum(value, height)
+    if height is not None and name == 'recirculation_area_mm2':
+        return np.maximum(value, np.asarray(height, dtype=float) ** 2)
+    return value
 
 
 def floats(values):

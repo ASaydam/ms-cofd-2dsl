@@ -331,3 +331,29 @@ The starting fields change the iterations, not the solution.
   the same as on the mesh for recirculation, flow split and Δp.
 - **This measures how well the arrays represent the attributes.** It is not the uncertainty of a comparison of two
   arrays on the same grid, where the resampling loss is common to both.
+
+## 13. Wake velocity within the obstacle's extent, and the array check on the level-error scales (2026-11-02)
+
+**What**:
+- `wake_min_u_x` is the smallest u_x on the line 20 mm behind the obstacle within the obstacle's y extent (b83d5e5,
+  `tools/openfoam_attributes.py` and `tools/flow_attributes.py`). Over the whole line, wall to wall, the minimum would
+  be the no-slip 0 of the walls wherever no reverse flow reaches the line (1,181 runs at 0.25 mm).
+- The sampled lines of every run were read from the run archives on Drive with `tools/extract_line_samples.py`
+  (7609533, in Colab): all 22,518 live archives, no MD5 mismatch, no error.
+- The four array checks of §12 were run again with b83d5e5 (jobs 3215222, 3215224–26; output
+  `audit/array-check-2026-11-02`). `validation/array_vs_openfoam.py` now uses the scales of the level errors
+  (`tools/uncertainty.py` scale_of with the obstacle height), so no case with an OpenFOAM value of 0 is left out.
+
+**Result**:
+- The minimum within the extent lies at least 3.1 mm inside it in every run, so the extent's edges never set the
+  value. Runs with reverse flow at the line keep their value; the other 6,297 runs get the trough behind the obstacle,
+  median +0.011 m/s at 0.25 mm.
+- Arrays against the solver mesh, median |array − OpenFOAM| / scale over all 4,500 cases, %:
+
+| Attribute | 2 mm | 1 mm FO | 1 mm | 0.5 mm | 0.25 mm |
+|---|---|---|---|---|---|
+| recirculation length (scale ≥ h) | 2.00 | 1.09 | 1.05 | 0.52 | 0.25 |
+| recirculation area (scale ≥ h²) | 2.51 | 0.76 | 0.80 | 0.25 | 0.07 |
+| wake velocity (scale U_in) | 0.63 | 0.43 | 0.34 | 0.19 | 0.09 |
+
+  The other rows are those of §12.
