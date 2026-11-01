@@ -112,6 +112,34 @@ def test_build_dataset(tmp_path, monkeypatch):
     assert abs(stacked[:, 0].mean()) < 1e-5            # one split, so its statistics are those of all cases
 
 
+def test_build_dataset_with_the_uncertainty(tmp_path, monkeypatch):
+    pq = pytest.importorskip("pyarrow.parquet")
+    pytest.importorskip("h5py")
+    from dataset import build_dataset
+    from tools.uncertainty import ARRAY_ATTRIBUTES
+
+    root, arrays, out = tmp_path / 'root', tmp_path / 'arrays', tmp_path / 'out'
+    fake_root(root)
+    for k, run in enumerate(RUNS):                                     # the cells of every level, from the provenance
+        for path in (root / 'results' / run).glob('*_provenance.json'):
+            path.write_text(json.dumps({**json.loads(path.read_text()), 'cells': 500 * 4 ** max(k - 1, 0)}))
+    arrays.mkdir()
+    for k, run in enumerate(('0.25x', 'base_fo', 'base_lu', '4x')):          # array values off by 4 - k % of 16x
+        with open(arrays / f"flow_attributes_{run}_16x.csv", 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['case_name'] + [f'{a}_{r}_array' for a in ARRAY_ATTRIBUTES for r in (run, '16x')])
+            for case in ('normal_circle_0001', 'normal_circle_0003'):
+                writer.writerow([case] + [v for _ in ARRAY_ATTRIBUTES for v in (1.0 + 0.01 * (4 - k), 1.0)])
+    monkeypatch.setenv('MSCOFD_DATA_ROOT', str(root))
+    monkeypatch.setattr(sys, 'argv', ['build_dataset', str(out), '--arrays', str(arrays)])
+    build_dataset.main()
+
+    table = pq.read_table(out / 'label_uncertainty.parquet').to_pydict()
+    assert table['source'] == ['openfoam'] * 2 + ['array'] * 2 * len(ARRAY_ATTRIBUTES)   # the fake root has only Fx
+    assert set(table['case_name']) == {'normal_circle_0001', 'normal_circle_0003'}
+    assert 'label_uncertainty.parquet' in (out / 'checksums.md5').read_text()
+
+
 def test_metadata_only(tmp_path, monkeypatch):
     pq = pytest.importorskip("pyarrow.parquet")
     pytest.importorskip("h5py")

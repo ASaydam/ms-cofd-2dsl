@@ -235,27 +235,25 @@ def summary(table):
     return '\n'.join(lines)
 
 
-def main():
-    import argparse
-    import pyarrow as pa
+def uncertainty_table(folder, arrays=None):
+    """
+    the uncertainty of every case and attribute of a dataset folder, as written to label_uncertainty.parquet
+    :param arrays: folder of the flow_attributes csv files: the array attributes (source "array") instead of the
+                   OpenFOAM ones of mesh_study.parquet (source "openfoam")
+    :return: {column: list or array}
+    """
     import pyarrow.parquet as pq
 
-    parser = argparse.ArgumentParser(description="Numerical uncertainty of every attribute and case")
-    parser.add_argument('dataset')
-    parser.add_argument('output')
-    parser.add_argument('--arrays', help="folder of the flow_attributes_<run>_16x.csv files: the array attributes")
-    args = parser.parse_args()
-    folder, output = Path(args.dataset), Path(args.output)
-    output.mkdir(parents=True, exist_ok=True)
-    if args.arrays:
-        study = array_study(args.arrays)
+    folder = Path(folder)
+    if arrays:
+        study = array_study(arrays)
     else:
         study = pq.read_table(folder / 'mesh_study.parquet', columns=['case_name', 'attribute'] + LEVELS).to_pydict()
     metadata = pq.read_table(folder / 'metadata.parquet', columns=['case_name'] + CELLS).to_pydict()
     cells = {case: [metadata[c][i] for c in CELLS] for i, case in enumerate(metadata['case_name'])}
     rows = [cells.get(case) for case in study['case_name']]
     if any(row is None or None in row for row in rows):
-        sys.exit("cases without the cells of every level in metadata.parquet")
+        raise ValueError("cases without the cells of every level in metadata.parquet")
     cell_counts = np.array(rows, dtype=float)
     h = np.sqrt(cell_counts[:, :1] / cell_counts)
     phi = np.column_stack([floats(study[level]) for level in LEVELS])
@@ -270,11 +268,39 @@ def main():
         scale[mask] = scale_of(name, phi[mask, 0], drag[mask])
     with np.errstate(divide='ignore', invalid='ignore'):
         u_pct, u1_pct = 100 * result['U'] / scale, 100 * 3 * np.abs(phi[:, 0] - phi[:, 1]) / scale
-    table = {'case_name': list(study['case_name']), 'attribute': list(study['attribute']),
-             'source': ['array' if args.arrays else 'openfoam'] * len(attributes),
-             **{level: phi[:, k] for k, level in enumerate(LEVELS)},
-             'U': result['U'], 'p': result['p'], 'method': [str(m) for m in result['method']], 'phi_0': result['phi_0'],
-             'U_%': u_pct, 'U1_%': u1_pct}
+    return {'case_name': list(study['case_name']), 'attribute': list(study['attribute']),
+            'source': ['array' if arrays else 'openfoam'] * len(attributes),
+            **{level: phi[:, k] for k, level in enumerate(LEVELS)},
+            'U': result['U'], 'p': result['p'], 'method': [str(m) for m in result['method']], 'phi_0': result['phi_0'],
+            'U_%': u_pct, 'U1_%': u1_pct}
+
+
+def release_table(folder, arrays):
+    """
+    label_uncertainty.parquet of the release (dataset/build_dataset.py --arrays), as a pyarrow table: the rows of
+    source "openfoam", then those of source "array" (as references/label_uncertainty.parquet of the benchmark)
+    """
+    import pyarrow as pa
+
+    return pa.concat_tables([pa.table(uncertainty_table(folder)), pa.table(uncertainty_table(folder, arrays))])
+
+
+def main():
+    import argparse
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    parser = argparse.ArgumentParser(description="Numerical uncertainty of every attribute and case")
+    parser.add_argument('dataset')
+    parser.add_argument('output')
+    parser.add_argument('--arrays', help="folder of the flow_attributes_<run>_16x.csv files: the array attributes")
+    args = parser.parse_args()
+    output = Path(args.output)
+    output.mkdir(parents=True, exist_ok=True)
+    try:
+        table = uncertainty_table(args.dataset, args.arrays)
+    except ValueError as error:
+        sys.exit(str(error))
     name = 'label_uncertainty_arrays' if args.arrays else 'label_uncertainty'
     pq.write_table(pa.table(table), output / f'{name}.parquet')
     write_csv({k: list(v) for k, v in table.items()}, output / f'{name}.csv')

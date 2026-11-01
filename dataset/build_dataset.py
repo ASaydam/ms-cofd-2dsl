@@ -6,10 +6,15 @@ whose 1 mm second-order run did not converge are out.
     python -m dataset.build_dataset <output folder>                      data root: MSCOFD_DATA_ROOT
     python -m dataset.build_dataset <output folder> --allow-missing      leave out cases with missing runs (pilots)
     python -m dataset.build_dataset <output folder> --metadata-only <release folder>
+    python -m dataset.build_dataset <output folder> --arrays <folder of flow_attributes_<run>_16x.csv>
 
 --metadata-only writes only metadata.parquet, metadata.csv, dataset_info.json and checksums.md5 into the output
 folder, for an existing release whose other files stay as they are: the grids come from its .h5 files, the checksums of
 its other files from its checksums.md5, and the cases and splits must equal those of its metadata.
+
+--arrays also writes label_uncertainty.parquet (tools/uncertainty.py release_table): the uncertainty of every case and
+attribute from the OpenFOAM values of the new mesh_study.parquet, and from the array values of the csv files of
+tools/flow_attributes.py --coarse <run> --fine 16x for the runs 0.25x, base_lu and 4x.
 
 Output in <output folder>:
 
@@ -21,6 +26,7 @@ Output in <output folder>:
                           time, peak memory, host, CPU, image digest, code revision, and the OpenFOAM attributes
     surface.parquet       pressure and wall shear along the obstacle, every case and run (one row per obstacle face)
     mesh_study.parquet    order, extrapolated value, errors of every level and GCI of every attribute and case
+    label_uncertainty.parquet   with --arrays: the Eça–Hoekstra uncertainty of every attribute and case
     dropped_cases.csv     the cases dropped because their 1 mm second-order run did not converge, with their parameters
                           and residuals
     dataset_info.json     name, version, counts per split, runs and grids, code revision, image digest
@@ -271,6 +277,8 @@ def main():
     parser.add_argument("--allow-missing", action="store_true", help="leave out cases with missing runs")
     parser.add_argument("--metadata-only", metavar="RELEASE",
                         help="write only the metadata, dataset_info.json and checksums.md5 for this release folder")
+    parser.add_argument("--arrays", metavar="FOLDER",
+                        help="folder of the flow_attributes_<run>_16x.csv files: also write label_uncertainty.parquet")
     args = parser.parse_args()
 
     root = ledger.data_root()
@@ -331,6 +339,11 @@ def main():
             record = json.loads(provenance.read_text()) if provenance.exists() else {}
             writer.writerow({**manifest[case], **{k: record.get(k) for k in fields[-5:-1]},
                              'reason': 'did not converge: the 1 mm second-order run stopped at its iteration cap'})
+
+    if args.arrays:
+        import pyarrow.parquet as pq
+        from tools.uncertainty import release_table
+        pq.write_table(release_table(output, args.arrays), output / 'label_uncertainty.parquet')
 
     info = {'name': dataset['name'], 'version': dataset['version'], 'created': datetime.now().astimezone().isoformat(timespec='seconds'),
             'cases': len(members), 'splits': {split: len(c) for split, c in split_cases.items() if c},
