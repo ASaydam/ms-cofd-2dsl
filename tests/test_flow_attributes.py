@@ -69,6 +69,23 @@ def test_obstacle_geometry_stays_clear_of_the_channel_walls():
     assert x_centroid == 0.13 and x_wake == 0.18
 
 
+def test_wake_velocity_within_the_obstacle_extent():
+    """without reverse flow at the wake column, the slow flow near a wall is not the wake velocity"""
+    from tools.openfoam_attributes import wake_minimum
+
+    pytest.importorskip("scipy")
+    sample = sample_with_wake()
+    assert attributes(sample, {"length": 260, "height": 120})[0]['wake_min_u_x'] == -0.01
+    sample[0][140, 1] = 0.001                   # near the bottom wall, below the obstacle
+    sample[0][140, 56:65] = 0.05                # the trough behind the obstacle
+    assert attributes(sample, {"length": 260, "height": 120})[0]['wake_min_u_x'] == 0.05
+
+    y = np.linspace(0, 0.12, 121)
+    ux = np.where((y > 0.055) & (y < 0.065), 0.05, 0.1)
+    ux[[0, -1]] = 0                             # no-slip walls
+    assert wake_minimum(y, ux, 0.05, 0.07) == 0.05 and ux.min() == 0
+
+
 def test_reverse_flow_along_a_wall_is_not_the_wake():
     """a thin reverse-flow layer along the bottom wall up to the outlet, not connected to the obstacle"""
     pytest.importorskip("scipy")

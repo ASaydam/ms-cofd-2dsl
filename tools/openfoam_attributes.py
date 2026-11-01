@@ -30,7 +30,8 @@ the 10 mm depth of the mesh, the other integrated quantities per unit depth (cel
                                faces; a separate thin reverse-flow layer along a channel wall does not count)
     recirculation_length_mm    furthest of these cells behind the obstacle, from its downstream end
     flow_split_upper           share of the flow above the obstacle at its centroid (sets)
-    wake_min_u_x               smallest u_x 20 mm behind the obstacle (sets)
+    wake_min_u_x               smallest u_x 20 mm behind the obstacle, within the obstacle's y extent (sets; over
+                               the whole line it would be the no-slip 0 of the walls when no reverse flow reaches it)
     outlet_reverse_flow        flow rate with u_x < 0 in the last 5 mm of the channel, relative to the net flow rate
                                (cells, area weighted); above 0 reverse flow reaches the outlet, where the boundary
                                condition (zero gradient) then sets part of the solution
@@ -150,6 +151,14 @@ def last_values(pattern):
     return lines[-1]
 
 
+def wake_minimum(y, ux, y_low, y_high):
+    """smallest u_x of a line across the wake at low <= y <= high (the obstacle's y extent)"""
+    import numpy as np
+
+    y, ux = np.asarray(y), np.asarray(ux)
+    return float(ux[(y >= y_low) & (y <= y_high)].min())
+
+
 def collect_case(work):
     import numpy as np
 
@@ -234,7 +243,8 @@ def collect_case(work):
 
     below, above = flux_to_obstacle("centroidBelow"), flux_to_obstacle("centroidAbove")
     row['flow_split_upper'] = float(above / (above + below))
-    row['wake_min_u_x'] = float(read_line("wakeLine")[1].min())
+    y_wake, ux_wake, _ = read_line("wakeLine")
+    row['wake_min_u_x'] = wake_minimum(y_wake, ux_wake, pressure[:, 1].min(), pressure[:, 1].max())
 
     # pressure drop between cross-sections 10 mm behind the inlet and 10 mm before the outlet (the area average on
     # the inlet patch includes the singular inlet corners, the cross-sections do not)

@@ -15,7 +15,7 @@ Attributes computed from the arrays (on each resolution's own grid, mm and m/s):
     dissipation               nu * integral of |grad u|^2 over the fluid (first 5 mm left out: inlet corners)
     peak_vorticity            largest |vorticity| (shear layers leaving the obstacle), first 5 mm left out
     mean_vorticity            |vorticity| averaged over the fluid area, first 5 mm left out
-    wake_min_u_x              smallest u_x 20 mm behind the obstacle (wake velocity deficit)
+    wake_min_u_x              smallest u_x 20 mm behind the obstacle, within its y extent (wake velocity deficit)
 
 The same attributes computed with OpenFOAM on the simulation mesh (results/<run>/<case>_attributes.json, see
 tools/openfoam_attributes.py) are the reference values; they also give the forces on the obstacle (drag, pressure
@@ -92,7 +92,8 @@ def attributes(sample, domain):
     result['mean_vorticity'] = float(np.abs(vorticity[region]).mean())
 
     i_wake = min(int(round((x_end + 20) / hx)), nx - 1)
-    result['wake_min_u_x'] = float(ux[i_wake][fluid[i_wake]].min())
+    behind_obstacle = (y[i_wake] >= y[obstacle].min()) & (y[i_wake] <= y[obstacle].max())
+    result['wake_min_u_x'] = float(ux[i_wake][fluid[i_wake] & behind_obstacle].min())
     return result, vorticity
 
 
