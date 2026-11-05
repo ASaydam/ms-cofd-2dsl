@@ -58,7 +58,8 @@ def wake_row(run, case, wake, gap_bottom, gap_top, height, value):
     # y is a float32 copy too: rounded to 0.1 um it is the set's value again (the points are 0.05 mm apart), so a
     # point on the edge of the extent stays in it
     y, ux = np.round(wake[:, 0].astype(np.float64) * 1000, 4), wake[:, 2].astype(np.float64)
-    band = np.flatnonzero((y >= gap_bottom) & (y <= height - gap_top))
+    # the bounds are rounded like y, so 120 - 64.65 = 55.349999999999994 keeps the point at 55.35
+    band = np.flatnonzero((y >= round(gap_bottom, 4)) & (y <= round(height - gap_top, 4)))
     i = band[np.argmin(ux[band])]
     return {'run': run, 'case': case, 'line_min': six_digits(ux.min()), 'metadata': value,
             'band_min': six_digits(ux[i]), 'band_y_mm': round(float(y[i]), 4), 'band_points': len(band),

@@ -27,3 +27,15 @@ def test_wake_row_keeps_reverse_flow():
     ux[[0, -1]] = 0.0
     row = wake_row('16x', 'normal_circle_0001', line(ux), 40.0, 40.0, 120.0, -0.02)
     assert row['band_min'] == row['line_min'] == round(0.15 - 0.17, 6)
+
+
+def test_wake_row_keeps_the_edge_point():
+    """120 - 64.65 is 55.349999999999994 in double precision; the line point at 55.35 mm is still in the extent"""
+    from tools.wake_band import wake_row
+
+    y = np.round(np.arange(0, 120.0001, 0.05), 2)
+    ux = np.full_like(y, 0.1)
+    ux[[0, -1]] = 0.0
+    wake = np.column_stack([y / 1000, np.zeros_like(y), ux, np.zeros_like(y)]).astype(np.float32)
+    row = wake_row('16x', 'smaller_diamond_0170', wake, gap_bottom=40.0, gap_top=64.65, height=120.0, value=0.0)
+    assert row['band_points'] == round((55.35 - 40.0) / 0.05) + 1
