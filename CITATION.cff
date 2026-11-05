@@ -8,6 +8,8 @@ version: 1.0.0
 authors:
   - family-names: Saydam
     given-names: Alper
+  - family-names: Akgün
+    given-names: Barış
 keywords:
   - computational fluid dynamics
   - dataset

@@ -57,3 +57,20 @@ def test_patch_results(tmp_path):
 
     again = run(root, wake, backup)                                             # a second run changes nothing
     assert again['16x']['npz_rewritten'] == 0 and again['16x']['wake_done'] == 1 and again['16x']['wake_patched'] == 0
+
+
+def test_patch_results_rounds_to_the_line_samples(tmp_path):
+    """the csv holds float32 copies of OpenFOAM's sets (writePrecision 6); the patched value is the set's value"""
+    from tools.patch_results import run
+
+    root, backup = tmp_path / 'root', tmp_path / 'backup'
+    write_run(root, '16x', 'normal_circle_0001', 0.0)
+    wake = tmp_path / 'wake_band.csv'
+    float32 = float(np.float32(0.0290714))
+    with open(wake, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['run', 'case', 'line_min', 'metadata', 'band_min'])
+        writer.writerow(['16x', 'normal_circle_0001', 0.0, 0.0, float32])
+    run(root, wake, backup)
+    attributes = json.loads((root / 'results' / '16x' / 'normal_circle_0001_attributes.json').read_text())
+    assert float32 != 0.0290714 and attributes['wake_min_u_x'] == 0.0290714

@@ -9,7 +9,8 @@ Brings the per-run results of the data root in line with the code before the re-
 2. results/<run>/<case>_attributes.json: wake_min_u_x is set to the smallest u_x of the wake line within the
    obstacle's y extent (tools/openfoam_attributes.py), from <wake_band.csv>: one row per run and case with the columns
    run, case, line_min (minimum of the whole line), metadata (the value in the file), band_min (the new value), made
-   from the line samples of the run archives (tools/extract_line_samples.py). Only the runs whose minimum of the whole
+   by tools/wake_band.py from the line samples of the run archives (tools/extract_line_samples.py). New values are
+   rounded to the 6 significant digits of OpenFOAM's sets. Only the runs whose minimum of the whole
    line lies outside the extent (band_min != line_min) change. A file is changed only when it holds the row's old
    value, so a wrong row is reported instead of applied; the original goes to <backup>/<run>/.
 
@@ -61,10 +62,12 @@ def patch_npz(path, dry_run=False):
 
 
 def wake_rows(path):
-    """{(run, case): (old value, new value)} of the runs whose wake velocity changes"""
+    """{(run, case): (old value, new value)} of the runs whose wake velocity changes. The line samples behind the csv
+    are float32 copies of OpenFOAM's ASCII sets (writePrecision 6), so the new value is rounded to 6 significant
+    digits: the value tools/openfoam_attributes.py reads from the archive (tools/wake_band.py already rounds)."""
     with open(path, newline='') as file:
-        return {(r['run'], r['case']): (float(r['metadata']), float(r['band_min'])) for r in csv.DictReader(file)
-                if float(r['band_min']) != float(r['line_min'])}
+        return {(r['run'], r['case']): (float(r['metadata']), float(f"{float(r['band_min']):.6g}"))
+                for r in csv.DictReader(file) if float(r['band_min']) != float(r['line_min'])}
 
 
 def patch_attributes(path, old, new, backup, dry_run=False):

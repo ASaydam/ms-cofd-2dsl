@@ -61,6 +61,7 @@ PROVENANCE = ['status', 'iterations', 'solver_runs', 'residual_Ux', 'residual_Uy
               'execution_time_s', 'clock_time_s',
               'peak_memory_kb', 'host', 'cpu_model', 'node_cpus_allocated', 'slurm_job_id', 'container_digest',
               'code_revision', 'finished']
+NESTED_TIMERS = ('gmsh', 'gmshToFoam')      # part of the setup timer, so not added to the task time again
 
 
 def number_or_text(value):
@@ -149,6 +150,17 @@ def started_from(provenance, run, run_settings):
     return provenance.get('init_from') or (run_settings or {}).get(run, {}).get('init_from') or 'rest'
 
 
+def task_time(timings):
+    """seconds of all timed steps of the task that finished the run (set-up with meshing, mapping, solver, resampling,
+    attributes, archive, upload), or None; gmsh and gmshToFoam are timed again inside setup (hpc/run_task.py
+    create_case), so they are not added twice"""
+    if not timings:
+        return None
+    if 'setup' in timings:
+        timings = {name: seconds for name, seconds in timings.items() if name not in NESTED_TIMERS}
+    return round(sum(timings.values()), 2)
+
+
 def metadata_row(root, runs, row, split, index, run_settings=None):
     """
     one row of metadata.parquet: the manifest row, the split and per run provenance and attributes
@@ -167,8 +179,7 @@ def metadata_row(root, runs, row, split, index, run_settings=None):
             text = key in ('mesh_variant', 'templates', 'init_from', 'code_revision', 'host', 'slurm_job_id',
                            'cpu_model', 'container_digest')
             out[f"{run}.{key}"] = value if text else number_or_text(value)
-        timings = provenance.get('timings_s') or {}
-        out[f"{run}.task_time_s"] = round(sum(timings.values()), 2) if timings else None
+        out[f"{run}.task_time_s"] = task_time(provenance.get('timings_s'))
         for key, value in json.loads(files['attributes'].read_text()).items():
             if key not in ('time', 'cells', 'faces') and isinstance(value, (int, float)):
                 out[f"{run}.{key}"] = value

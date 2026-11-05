@@ -177,3 +177,12 @@ def test_metadata_only(tmp_path, monkeypatch):
                                       '--allow-missing'])
     with pytest.raises(SystemExit):
         build_dataset.main()
+
+
+def test_task_time_counts_the_meshing_once():
+    from dataset.build_dataset import task_time
+
+    timings = {'setup': 30.0, 'gmsh': 20.0, 'gmshToFoam': 5.0, 'simpleFoam': 600.0, 'resample': 10.0,
+               'attributes': 8.0, 'archive': 4.0, 'upload': 2.0}
+    assert task_time(timings) == 654.0                                           # gmsh and gmshToFoam are in setup
+    assert task_time({'simpleFoam': 60.0}) == 60.0 and task_time({}) is None and task_time(None) is None
