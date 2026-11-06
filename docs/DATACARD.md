@@ -5,7 +5,7 @@ past one obstacle, each solved to convergence at five fidelities with OpenFOAM.
 
 | | |
 |---|---|
-| Version | 1.0.0. Arrays built at pipeline commit f71b088; metadata rebuilt at 0b6c60a (2026-10-19), see Provenance |
+| Version | 1.0.0, built at pipeline commit a21e54b (2026-11-06), see Provenance |
 | Licence | CC BY 4.0 |
 | Citation, links | the repository page of this dataset gives the citation, the DOI, the code repositories and the location of the archived cases |
 | Code | the generation pipeline `ms-cofd-2dsl`, tag `data-v1.0.0`; the benchmark `ms-cofd-2dsl-bench` (tasks, metrics, label uncertainty) |
@@ -70,7 +70,7 @@ test sets: cases from the upper tails of blockage, rotation and position, held o
 
   The flow channels are 0 inside the obstacle.
 - **Grid:** point (i, j) lies at x = i · 360 / (nx − 1) mm and y = j · 120 / (ny − 1) mm, with the inlet at i = 0.
-  The grids of different levels share only their end points.
+  The grids of different levels share only their four corners.
 - **Masks:** `cell_type == 1` covers the obstacle and both channel walls. `obstacle_sdf <= 0` covers the obstacle
   alone (`< 0` would leave out its border points).
 - **Attributes:** `<run>.<attribute>` in the metadata are computed on the simulation mesh, by a Python script from the
@@ -129,11 +129,15 @@ test sets: cases from the upper tails of blockage, rotation and position, held o
   - The run records hold it from code revision ec727c7 on.
   - For the 252 earlier 0.25 mm runs, the value `base_lu` comes from the dataset audit: their timings show the
     mapFields step (244 runs), or their archives hold `log.mapFields` (8 continued runs).
-  - The metadata was rebuilt at 0b6c60a to fill this column. The arrays and all other files are those built at
-    f71b088.
 - **Code revision:** `<run>.code_revision` is the revision deployed when the run finished. A run that spanned a
   deploy ran the code before it. 136 of the 252 runs above carry ec727c7, although they started under an earlier
   revision.
+- **Set after the production:** `wake_min_u_x` and channel 3 (`wall_distance`) were set for every run after it
+  finished, without solving again.
+  - The wake value is the minimum on the wake line of the archived case (`tools/wake_band.py`,
+    `tools/patch_results.py`).
+  - The wall distance depends on the grid alone.
+  - `<run>.code_revision` does not cover these two values. The release revision a21e54b contains both tools.
 - **Geometry:** every geometry is regenerated exactly from the global seed (2026) and the case name with the
   pipeline.
 - **Archives:** the complete OpenFOAM case of every run (mesh, the last two time steps, logs, attribute outputs) is
