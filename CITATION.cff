@@ -5,11 +5,17 @@ abbreviation: "MS-COFD-2DSL"
 type: software
 license: MIT
 version: 1.0.0
+date-released: 2026-11-06
+repository-code: "https://github.com/ASaydam/ms-cofd-2dsl"
 authors:
   - family-names: Saydam
     given-names: Alper
+    affiliation: "KUIS AI Center, Koç University"
+    orcid: "https://orcid.org/0000-0002-0887-9801"
   - family-names: Akgün
     given-names: Barış
+    affiliation: "KUIS AI Center, Koç University"
+    orcid: "https://orcid.org/0000-0002-4079-6889"
 keywords:
   - computational fluid dynamics
   - dataset
@@ -18,5 +24,37 @@ keywords:
   - OpenFOAM
   - gmsh
   - machine learning
-# TODO before publication: affiliation / ORCID, repository URL, release date, the dataset DOI and a
-# "preferred-citation" block pointing to the dataset paper
+# the dataset (arrays and tables) until the dataset paper is out; then the paper, and the dataset moves to references
+preferred-citation:
+  type: data
+  title: "ms-cofd-2dsl"
+  authors:
+    - family-names: Saydam
+      given-names: Alper
+      orcid: "https://orcid.org/0000-0002-0887-9801"
+    - family-names: Akgün
+      given-names: Barış
+      orcid: "https://orcid.org/0000-0002-4079-6889"
+  publisher:
+    name: "Hugging Face"
+  year: 2026
+  version: "b312def"
+  doi: "10.57967/hf/11554"
+  url: "https://huggingface.co/datasets/asaydam/ms-cofd-2dsl"
+references:
+  - type: data
+    title: "ms-cofd-2dsl-raw"
+    abstract: "The archived OpenFOAM case of every run of the dataset."
+    authors:
+      - family-names: Saydam
+        given-names: Alper
+        orcid: "https://orcid.org/0000-0002-0887-9801"
+      - family-names: Akgün
+        given-names: Barış
+        orcid: "https://orcid.org/0000-0002-4079-6889"
+    publisher:
+      name: "Hugging Face"
+    year: 2026
+    version: "1f12a7b"
+    doi: "10.57967/hf/11553"
+    url: "https://huggingface.co/datasets/asaydam/ms-cofd-2dsl-raw"
