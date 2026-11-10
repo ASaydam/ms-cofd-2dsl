@@ -1,7 +1,7 @@
 # Loose-criterion audit (validation/select_loose_audit.py, docs/validation.md): what the stopping criterion of common
 # practice (residualControl p 1e-2, U 1e-3; template second-order-loose) does to the 0.25 mm labels and to the
-# coarse-to-fine gap, on 105 test cases (7 per size and family) and 15 ood_blockage cases. Copied into the data root of
-# the audit by select_loose_audit.py; replaces these top-level entries of config/dataset.yaml for that root only.
+# coarse-to-fine gap, on 105 test cases (7 per size and family) and 8 ood_blockage cases (one per size and family that
+# has any). Copied into the data root of the audit by select_loose_audit.py; replaces these top-level entries of config/dataset.yaml for that root only.
 #
 #   base_lu                 converged 1 mm solution, as in the production (the start of 16x_loose)
 #   16x_loose               0.25 mm, loose criterion, started from base_lu (mapFields), as the production starts

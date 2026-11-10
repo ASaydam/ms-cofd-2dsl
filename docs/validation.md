@@ -127,6 +127,27 @@ errors, all of them the missing init_from of the runs above, and warnings from l
 - **New MD5 of `checksums.md5`:** 209ebc4f85e13235bbc3e6b7f2a63243. The four files they replaced are kept in
   `dataset/v1.0.0-metadata-f71b088/`.
 
+**Re-freeze (2026-11-05/06), before any publication.**
+- **Why:** three values did not match their definitions, and `label_uncertainty.parquet` belongs in the release.
+  - The wake velocity is the minimum within the obstacle's y extent (§13). In 6,297 runs the value was the 0 of the
+    walls.
+  - Channel 3 (`wall_distance`) is min(j, ny − 1 − j). The old formula min(j, ny − j) gave the top wall row a
+    distance of 1.
+  - `<run>.task_time_s` counted gmsh and gmshToFoam twice.
+- **What:** `tools/wake_band.py` and `tools/patch_results.py` at 69c8c75 (jobs 3220847, 3220849) set the wake
+  velocity and channel 3 of the per-run results, without solving again. `dataset/build_dataset.py` at a21e54b
+  (job 3220889) built the release, with `label_uncertainty.parquet` and the data card.
+- **Checked:**
+  - The audit (§5, job 3220882): no error, the same 8 warnings.
+  - Against the release of 2026-10-19 (job 3220890), only these differ: channel 3 and its statistics, the wake
+    velocity and task-time columns, the wake rows of `mesh_study.parquet` and the wording of `dropped_cases.csv`.
+  - The reproduction check gives back the release bit for bit (§7).
+- **Release:** 38 data files (104,036,743,518 bytes) and `checksums.md5`, 39 files and 104,036,745,483 bytes.
+  `md5sum -c` passes for all 38. The copies on Drive and on the second cluster match.
+- **MD5 of `checksums.md5`:** 82a46f931bb1d60b57dbc564305019fb. The release of 2026-10-19 is kept in
+  `dataset/v1.0.0-2026-10-19/`. Tag `data-v1.0.0` is on e3126b9: the build code of a21e54b and the data card as
+  released.
+
 ## 7. Reproduction check (2026-10-18)
 
 **What**: `validation/check_reproduction.py` (8f6e78d).
@@ -150,6 +171,10 @@ attributes with OpenFOAM:
 - All 5 archives give back arrays and attributes identical to the released ones (largest difference 0).
 - All 6 runs solved again need the same number of iterations (173 to 1,207).
 - Their fields and attributes are identical to the released ones (largest difference 0).
+
+**Repeated at a21e54b on the final release (2026-11-06, jobs 3220895–3220897):** the 5 archives give arrays and
+attributes identical to the release (largest difference 0). The 6 runs solved again match the release in every
+channel, the time step and every attribute.
 
 ## 8. Loose stopping criterion (2026-10-16/17)
 
@@ -301,6 +326,18 @@ The starting fields change the iterations, not the solution.
 - **The three-level GCI** of `mesh_study.parquet` is undefined for 34 % of the drag labels (convergence not
   monotonic). The meshes are independent unstructured meshes, not nested refinements, which is why the label
   uncertainty uses the Eça–Hoekstra procedure.
+- **Share of cases whose own level error exceeds their own U** (Fig. 7b of the paper), printed by the same script.
+  U = 0 counts as exceeded wherever the level differs from the label. On the final release (2026-11-06), %:
+
+| Attribute | 2 mm | 1 mm, first order | 1 mm | 0.5 mm |
+|---|---|---|---|---|
+| drag | 42.3 | 85.2 | 19.7 | 3.0 |
+| recirculation length | 51.8 | 90.4 | 29.1 | 6.8 |
+| dissipation | 100.0 | 100.0 | 99.6 | 60.8 |
+| mean vorticity | 75.4 | 99.9 | 50.4 | 8.1 |
+| lift | 43.7 | 58.4 | 19.8 | 4.8 |
+
+  For the second-order levels these shares are not an independent test, because U comes from the same four levels.
 
 ## 12. Arrays against the solver mesh (2026-10-18)
 
@@ -356,4 +393,27 @@ The starting fields change the iterations, not the solution.
 | recirculation area (scale ≥ h²) | 2.51 | 0.76 | 0.80 | 0.25 | 0.07 |
 | wake velocity (scale U_in) | 0.63 | 0.43 | 0.34 | 0.19 | 0.09 |
 
-  The other rows are those of §12.
+  The other rows are those of §12. On the final release (2026-11-06, job 3220891), `validation/array_vs_openfoam.py`
+  gives the same table, the wake row included.
+
+## 14. Tighter stopping criterion (2026-10-24/26)
+
+**What**: `validation/tolerance_check.py` in a separate data root (`tol-check`). Twelve converged 0.25 mm runs were
+continued from the criterion of the production (every initial residual below 1e-6) to 1e-8, with nothing else
+changed. The cases:
+- the four with the most iterations (41,173 to 52,748);
+- three at the blockage limit of 0.40;
+- four with the smallest label uncertainty of drag or dissipation;
+- one with the median number of iterations.
+
+**Pass criterion**: the attributes change little against the label uncertainty U of their case.
+
+**Result: passed.**
+- 10 runs reached 1e-8 after 1,790 to 28,097 further iterations. The two slowest stopped after 30,063 and 30,052
+  further iterations, with largest residuals of 7.8e-8 and 5.8e-8, still falling.
+- The fields changed by 0.03–0.05 % (RMS of the change over the RMS of the field, largest in u_y).
+- Over the 228 attribute–case pairs, the largest change is 0.21 U (dp_sections of larger_diamond_0010) and the median
+  0.0002 U. Only three pairs exceed 0.1 U, all in larger_diamond_0010, a case chosen for its small U: base pressure
+  0.135, dp_sections 0.209 and mean vorticity 0.147.
+- Recomputed on 2026-11-04 with the wake velocity within the obstacle's extent (§13) and its uncertainty: the same
+  largest change and the same three pairs, median 0.00019 U.

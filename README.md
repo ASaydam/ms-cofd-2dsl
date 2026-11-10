@@ -31,7 +31,8 @@ super-resolution, surrogate modelling), with the mesh convergence of every case 
 
 - **Attributes that converge with the mesh**: drag and lift with their pressure and friction parts, mean wall shear,
   mean vorticity, recirculation length and area, wake deficit, dissipation, pressure drop between cross-sections,
-  flow split. Each comes with its mesh-study uncertainty (grid convergence index of the 0.25 mm value).
+  flow split. Each comes with the numerical uncertainty of its 0.25 mm value (Eça–Hoekstra, from the four
+  second-order levels, `label_uncertainty.parquet`).
 - **Surface distributions**: pressure and wall shear coefficients along the obstacle.
 - **Peak values** (peak wall shear, peak vorticity) are included but not mesh-independent: at sharp corners the exact solution is
   singular, so they keep growing with refinement and are not mesh-independent targets.
@@ -155,6 +156,8 @@ limit continues where it stopped.
 - **Provenance**: every run writes `<case>_provenance.json` with its status, iterations, residuals, timings, peak
   memory, host and CPU, the container digest and the code revision.
 - **Decisions**: the reasons behind the settings are in `docs/decisions.md`.
+- **Validation**: every check of the pipeline and the dataset, with its numbers, is in `docs/validation.md`. The
+  scripts are in `validation/`.
 
 ## Repository layout
 
@@ -167,8 +170,9 @@ extraction/      VTK resampling and the 6 channel arrays, run checks
 tools/           OpenFOAM attributes, array attributes, mesh convergence study, interpolation baselines
 dataset/         readers of the per-case results
 hpc/             production on a SLURM cluster
+validation/      checks of the pipeline and the dataset (docs/validation.md)
 environment/     Dockerfile, conda environment, version records
-docs/            decision log
+docs/            decision log, validation record, data card, Hugging Face dataset cards (hf/)
 tests/           pytest (run in the container by the CI)
 ```
 
