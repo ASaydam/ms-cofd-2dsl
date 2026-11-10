@@ -79,7 +79,18 @@ docker run --rm -v "$PWD:/data" --entrypoint bash ghcr.io/asaydam/ms-cofd-2dsl@<
 
 ## Citation and licence
 
-If you use these archives, please cite the dataset paper: [citation of the dataset paper].
+A dataset paper is in preparation. Until it is out, please cite the archives:
+
+```bibtex
+@misc{saydam2026mscofd2dslraw,
+  author    = {Alper Saydam and Barış Akgün},
+  title     = {ms-cofd-2dsl-raw (Revision 1f12a7b)},
+  year      = {2026},
+  publisher = {Hugging Face},
+  doi       = {10.57967/hf/11553},
+  url       = {https://huggingface.co/datasets/asaydam/ms-cofd-2dsl-raw}
+}
+```
 
 The archives are licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): you may share and adapt
-them for any purpose, including commercially, if you give credit by citing the paper and indicate any changes.
+them for any purpose, including commercially, if you give credit by citing them and indicate any changes.
