@@ -15,8 +15,6 @@ configs:
   data_files: index.csv
 ---
 
-> **Upload in progress.** Not all archives are here yet. `index.csv` lists every archive of the dataset.
-
 # MS-COFD-2DSL: archived OpenFOAM cases
 
 MS-COFD-2DSL (Multi-Scale Central Object Flow Dataset, 2D Steady Laminar) holds 4,500 two-dimensional, steady,
